@@ -210,13 +210,19 @@ export class SbomTool {
       // Read and sanity-check the manifest being imported
       const importedContent = await fs.readFile(args.importFilePath, 'utf8');
       const importedDocument = JSON.parse(importedContent) as IDocument;
-      if (!importedDocument?.spdxVersion || !importedDocument?.packages) {
+      if (typeof importedDocument?.spdxVersion !== 'string' || !Array.isArray(importedDocument?.packages)) {
         throw new Error(`File '${args.importFilePath}' does not look like a valid SPDX document`);
       }
 
       // Copy it into the standard manifest output location, so it's found in the same place a
       // `generate` run would have left it (e.g. by a later `PublishBuildArtifacts` step)
-      const manifestVersion = importedDocument.spdxVersion.replace(/^SPDX-/i, '') || MANIFEST_VERSION;
+      const manifestVersionMatch = /^SPDX-(2\.\d+)$/i.exec(importedDocument.spdxVersion.trim());
+      if (!manifestVersionMatch) {
+        throw new Error(
+          `File '${args.importFilePath}' has unsupported SPDX version '${importedDocument.spdxVersion}'. Expected SPDX-2.x`,
+        );
+      }
+      const manifestVersion = manifestVersionMatch[1];
       const manifestOutputPath = path.join(
         args.manifestOutputPath || getVariable('Build.ArtifactStagingDirectory') || __dirname,
         MANIFEST_DIR_NAME,

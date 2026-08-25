@@ -80,14 +80,16 @@ async function run() {
         }
         for (var i = 0; i < importFilePaths.length; i++) {
           const importFilePath = importFilePaths[i];
+          const importFileName = path.basename(importFilePath);
+          const importFileNamePrefix = importFileName.toLowerCase().endsWith('.spdx.json')
+            ? importFileName.slice(0, -'.spdx.json'.length)
+            : path.basename(importFileName, path.extname(importFileName));
           try {
             await sbomTool.importAsync({
               importFilePath: importFilePath,
               manifestOutputPath: getInput('manifestOutputPath', false),
               manifestFileNamePrefix:
-                importFilePaths.length > 1
-                  ? `${path.basename(importFilePath, path.extname(importFilePath))}.`
-                  : undefined,
+                importFilePaths.length > 1 ? `${importFileNamePrefix || `import-${i + 1}`}.` : undefined,
               enableManifestSpreadsheetGeneration: getBoolInput('enableManifestSpreadsheetGeneration', false),
               enableManifestGraphGeneration: getBoolInput('enableManifestGraphGeneration', false),
               fetchSecurityAdvisories: getBoolInput('fetchSecurityAdvisories', false),
