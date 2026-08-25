@@ -88,19 +88,16 @@ Details that matter when packaging manually:
   set `baseUri: null` so the vsix is fully self-contained (files under `ui/dist` are embedded via
   the `files` entry in `vss-extension.json`, since they're marked `addressable: true`).
 - **Version tokens**: `vss-extension.overrides.dev.json` / `.prod.json` contain the literal
-  placeholder `"#{MAJOR_MINOR_PATCH}#.#{BUILD_NUMBER}#"`. In CI (`.github/workflows/tfx-extension.yml`)
-  these get resolved by GitVersion (`GitVersion.yml`) + `cschleiden/replace-tokens` before packaging.
-  **Locally there is no equivalent step** — if you run `npm run package:dev`/`package:prod` as-is,
-  `tfx-cli` will fail on an invalid version string. Either hand-edit the override file's `version`
-  field to a real value first, or just use plain `npm run package`, which packages the base manifest
-  (static starting version `0.0.0.0` in `vss-extension.json`) and auto-bumps the patch number itself
-  via `vss-extension.version.increment.js` (sets `task/task.json`'s `version.Patch` to a
-  date-derived number `YMMDDHHmm`, then mirrors `Major.Minor.Patch` into `vss-extension.json`'s
-  `version`).
-- `task/task.json`'s own `version.{Major,Minor,Patch}` (separate from the extension's manifest
-  version) is also stamped by GitVersion + a `jq` step in CI; locally it stays whatever is
-  committed unless you run `npm run package` (which touches it via the increment script) or edit it
-  by hand.
+  placeholder `"#{MAJOR_MINOR_PATCH}#.#{BUILD_NUMBER}#"`. **`build.ps1`** (repo root) resolves this
+  — it runs GitVersion to compute `MajorMinorPatch`, substitutes the tokens, stamps
+  `task/task.json`'s `version.{Major,Minor,Patch}` the same way, then runs the full
+  install/build/test/package:dev/package:prod sequence. It's runnable both locally (`./build.ps1`,
+  cross-platform via `pwsh`) and from CI (`.github/workflows/tfx-extension.yml` now just calls
+  `./build.ps1 -BuildNumber ${{ github.run_number }}`) — same script, so they can't drift apart.
+  See [Building and Packaging § `build.ps1`](docs/wiki/Building-and-Packaging.md) for details, or
+  fall back to hand-editing the override file's placeholder / plain `npm run package` (uses the
+  base manifest's own static version + `vss-extension.version.increment.js`) if you don't have
+  `dotnet` available for GitVersion.
 - `tfx-cli` is invoked via `npx` — no global install required.
 
 ## Local build → manually installing into an Azure DevOps org (no public Marketplace listing)
@@ -116,8 +113,9 @@ straight into the server with no Marketplace involved at all — see "On-prem" b
 
 ### Prerequisite: a Marketplace publisher you control
 
-The manifest's `publisher` is `rhyskoedijk`. You almost certainly don't have upload rights to that
-publisher, so either:
+The manifest's `publisher` is `Alkampfer` in this fork (changed from upstream's `rhyskoedijk`). If
+adapting this elsewhere, you'll need upload rights to whatever publisher `vss-extension.json`
+names — either:
 
 - ask to be added as a member of that publisher account, or
 - register your own publisher for free at https://marketplace.visualstudio.com/manage, then change
@@ -126,15 +124,11 @@ publisher, so either:
 
 ### Recommended path: fully self-contained private build (`dev` variant)
 
-1. Edit `vss-extension.overrides.dev.json` and replace the version placeholder with a concrete
-   value, e.g.:
-   ```json
-   { "id": "sbom-tool-dev", "name": "SBOM Tool [DEV]", "version": "0.1.0", "public": false, "baseUri": null }
-   ```
-2. `npm install`
-3. `npm run build`
-4. `npm run package:dev` → produces `dist/dev/<publisher>.sbom-tool-dev-0.1.0.vsix`
-5. Upload it privately and install it into your org, either:
+1. Run `./build.ps1` (repo root, PowerShell 7 / `pwsh`) → computes a real version with GitVersion
+   and produces `dist/dev/<publisher>.sbom-tool-dev-<version>.vsix` (and a `dist/prod/...vsix` you
+   can ignore for a private-only install). No manual version editing needed; see
+   [Building and Packaging § `build.ps1`](docs/wiki/Building-and-Packaging.md) for what it does.
+2. Upload it privately and install it into your org, either:
    - **CLI, one shot** (package+upload+share): create a PAT with **Marketplace (publish)** scope
      (or use an Entra token), then:
      ```bash
@@ -144,11 +138,11 @@ publisher, so either:
        --share-with <your-org-name>
      ```
    - **Web UI**: go to https://marketplace.visualstudio.com/manage → your publisher → **New
-     extension → Azure DevOps** → upload the `.vsix` from step 4 (it stays private/unlisted, only
+     extension → Azure DevOps** → upload the `.vsix` from step 1 (it stays private/unlisted, only
      visible to you) → right-click it → **Share/Unshare** → enter your org name.
-6. In the org: **Organization Settings → Extensions → Browse Marketplace**, find it (it'll show as
+3. In the org: **Organization Settings → Extensions → Browse Marketplace**, find it (it'll show as
    shared-with-you), **Get it free** → install.
-7. To update later: rebuild, re-`create`/`publish` with a **bumped version** (`--rev-version` flag
+4. To update later: rebuild, re-`create`/`publish` with a **bumped version** (`--rev-version` flag
    works with `tfx extension create`/`publish` too), then re-upload/**Update** the same extension —
    Azure DevOps auto-upgrades it for every org that already installed it. Don't delete/re-create
    unless you must.

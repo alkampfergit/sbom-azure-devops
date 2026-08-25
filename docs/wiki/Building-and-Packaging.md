@@ -41,37 +41,65 @@ is affected by it, since the task itself runs on a pipeline agent, not in a brow
 ## Versioning — three numbers that can drift independently
 
 1. **`vss-extension.json`'s own `version`** (the extension package version, `Major.Minor.Patch`,
-   what Azure DevOps shows as "extension version").
+   what Azure DevOps shows as "extension version"). Only used by the base/"local" manifest variant.
 2. **The override files' `version`** — literally the placeholder string
    `"#{MAJOR_MINOR_PATCH}#.#{BUILD_NUMBER}#"` in both `vss-extension.overrides.dev.json` and
-   `vss-extension.overrides.prod.json`. These are token-replaced **only in CI**
-   (`.github/workflows/tfx-extension.yml`), using `gittools/actions/gitversion` (config:
-   `GitVersion.yml` — `main` branch → `ci` label, PRs → `pr` label) to compute
-   `majorMinorPatch`, then `cschleiden/replace-tokens` substitutes
-   `MAJOR_MINOR_PATCH`/`BUILD_NUMBER` (the latter is `github.run_number`) into both override files.
+   `vss-extension.overrides.prod.json`, resolved by [`build.ps1`](#buildps1--the-real-build-job-runnable-anywhere)
+   (locally or in CI — see below) using GitVersion for `MAJOR_MINOR_PATCH` and either
+   `github.run_number` (in CI) or a date-based fallback (locally) for `BUILD_NUMBER`.
 3. **`task/task.json`'s own `version.{Major,Minor,Patch}`** (the _task_'s version, independent of
-   the extension package version — Azure DevOps pipelines pin a task by this). In CI this is set
-   via `jq` from the same GitVersion output + `github.run_number`.
+   the extension package version — Azure DevOps pipelines pin a task by this). Also stamped by
+   `build.ps1`, from the same GitVersion output + build number.
 
-**There is no local equivalent of step 2's token replacement.** If you run `npm run package:dev` or
-`npm run package:prod` without first hand-editing the placeholder, `tfx-cli` will fail on an invalid
-semver string. Two ways to package locally:
+### `build.ps1` — the real `build` job, runnable anywhere
 
-- **Simplest**: use plain `npm run package`. It packages the base (`local`) manifest, which has a
-  real starting version (`0.0.0.0`) and is auto-bumped by `vss-extension.version.increment.js`:
-  that script sets `task/task.json`'s `version.Patch` to a date-derived number (`YMMDDHHmm`, e.g.
-  `2510251430`), then mirrors `task.json`'s `Major.Minor.Patch` into `vss-extension.json`'s
-  `version`. This also means `npm run package` **mutates `task/task.json` and `vss-extension.json`
-  on disk** — expect a git diff after running it; don't commit that diff unless you intend to bump
-  the checked-in version.
-- **For a `dev`/`prod`-style fully self-contained build**: hand-edit the placeholder in the override
-  file to a real value first, e.g.:
-  ```json
-  { "id": "sbom-tool-dev", "name": "SBOM Tool [DEV]", "version": "0.1.0", "public": false, "baseUri": null }
-  ```
-  then run `npm run package:dev` as usual. `tfx-cli` also supports `--rev-version` to
-  auto-increment just the patch number and persist it back to the manifest, if you'd rather not
-  hand-pick a version each time.
+`build.ps1` (repo root) _is_ the CI `build` job now — `.github/workflows/tfx-extension.yml` just
+runs `./build.ps1 -BuildNumber ${{ github.run_number }}` (see
+[Contributing and CI](Contributing-and-CI.md#release-pipeline-tfx-extensionyml)). The same script
+runs identically on a GitHub-hosted Ubuntu runner or on a local Windows/macOS/Linux machine, via
+PowerShell 7 (`pwsh`) — preinstalled on GitHub-hosted runners, and cross-platform to install
+elsewhere. It:
+
+1. Installs `GitVersion.Tool` as a `dotnet` global tool if `dotnet-gitversion` isn't already on
+   `PATH`, then runs it to compute `MajorMinorPatch` from your actual git tag/commit history — the
+   same underlying GitVersion tool the `gittools/actions/gitversion` GitHub Action used to wrap,
+   just invoked directly.
+2. Replaces the `#{MAJOR_MINOR_PATCH}#`/`#{BUILD_NUMBER}#` tokens in every
+   `vss-extension.overrides.*.json` (a plain text substitution — same effect as the old
+   `cschleiden/replace-tokens` CI step).
+3. Stamps `task/task.json`'s `version.{Major,Minor,Patch}`, the same way the old inline `jq` CI
+   step did, just via PowerShell's native JSON cmdlets.
+4. Runs `npm install`, `npm run build`, `npm test`, `npm run package:dev`, `npm run package:prod` —
+   identical to before.
+
+```powershell
+./build.ps1                                      # local build; build number = date-based (YMMDDHHmm)
+./build.ps1 -BuildNumber $env:GITHUB_RUN_NUMBER  # what CI actually runs
+./build.ps1 -SkipTests                           # skip `npm test` for a faster local iteration
+```
+
+Steps 2–3 mutate tracked files on disk (`task/task.json`, both override files) — this is
+intentional (CI does the same thing in its own throwaway checkout) but means you'll see a git diff
+afterward. Revert it if you don't intend to commit a version bump:
+
+```bash
+git checkout -- task/task.json vss-extension.overrides.dev.json vss-extension.overrides.prod.json
+```
+
+For real git history (tags), GitVersion needs your fork's history to actually descend from
+upstream's release tags — if you forked before adding an `upstream` remote, run
+`git remote add upstream https://github.com/rhyskoedijk/sbom-azure-devops.git && git fetch upstream --tags`
+once so those tags are visible locally; GitHub doesn't copy a fork's parent tags automatically.
+
+**If you don't have/want `dotnet`**, the old manual paths still work — they just don't compute a
+"real" GitVersion-derived number:
+
+- Plain `npm run package` — packages the base (`local`) manifest, which has a real starting
+  version (`0.0.0.0`) and is auto-bumped by `vss-extension.version.increment.js` (sets
+  `task/task.json`'s `version.Patch` to a date-derived number, mirrors it into
+  `vss-extension.json`'s `version`).
+- Hand-edit an override file's placeholder to a literal value, then `npm run package:dev`/`:prod`
+  as usual. `tfx-cli` also supports `--rev-version` to auto-increment just the patch number.
 
 ## Checking package size
 

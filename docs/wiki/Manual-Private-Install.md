@@ -16,38 +16,39 @@ action. (Azure DevOps _Server_, the on-prem product, is different — see
 
 ## Prerequisite: a Marketplace publisher you control
 
-`vss-extension.json`'s `publisher` field is `rhyskoedijk`. Unless you're added as a member of that
-publisher account, you can't upload under it. Either:
+`vss-extension.json`'s `publisher` field must match a Marketplace publisher account you're a
+member of — in this fork it's already set to `Alkampfer` (changed from upstream's `rhyskoedijk`).
+If you're adapting this repo under a different fork/publisher, either:
 
 - ask the current publisher to add you as a member, **or**
 - register your own publisher for free at https://marketplace.visualstudio.com/manage (needs a
   Microsoft/Azure DevOps account, accepting the
   [Marketplace Publisher Agreement](https://aka.ms/vsmarketplace-agreement)), then change
-  `"publisher"` in `vss-extension.json` (and, to avoid colliding with the upstream listing,
-  probably `"id"` too) to your own publisher id before packaging.
+  `"publisher"` in `vss-extension.json` (and, to avoid colliding with anyone else's listing,
+  probably `"id"` too) to your own publisher id before packaging. Make sure it matches the
+  publisher **id** exactly (case-sensitive) — not just the display name — or the upload will fail.
 
 ## Recommended: fully self-contained private build (the `dev` variant)
 
 Use this when you want a real, portable `.vsix` that works without your dev machine running
 anything — good for "install it in the org and just use it" testing, including by teammates.
 
-1. Edit `vss-extension.overrides.dev.json` and replace the CI-only version placeholder with a real
-   value (see [Building and Packaging § Versioning](Building-and-Packaging.md#versioning--three-numbers-that-can-drift-independently)
-   for why this is necessary locally):
-   ```json
-   { "id": "sbom-tool-dev", "name": "SBOM Tool [DEV]", "version": "0.1.0", "public": false, "baseUri": null }
+1. Run `./build.ps1` from the repo root (PowerShell 7 / `pwsh`). This computes a real version with
+   GitVersion, stamps it into `task/task.json` and both `vss-extension.overrides.*.json`, then
+   builds, tests, and packages **both** the `dev` and `prod` variants — see
+   [Building and Packaging § `build.ps1`](Building-and-Packaging.md#buildps1--the-real-build-job-runnable-anywhere)
+   for exactly what it does (it's the same script CI runs). No manual version editing needed.
+   ```powershell
+   ./build.ps1
+   # -> dist/dev/<publisher>.sbom-tool-dev-<version>.vsix
+   # -> dist/prod/<publisher>.sbom-tool-<version>.vsix   (ignore this one for a private-only install)
    ```
-2. Bootstrap and build:
-   ```bash
-   npm install
-   npm run build
-   ```
-3. Package it:
-   ```bash
-   npm run package:dev
-   # -> dist/dev/<publisher>.sbom-tool-dev-0.1.0.vsix
-   ```
-4. Get it into the Marketplace **privately**, either in one shot from the CLI, or via the web UI.
+   Don't have `dotnet`/don't want to install GitVersion? Hand-edit
+   `vss-extension.overrides.dev.json`'s version placeholder to a literal value instead (e.g.
+   `"0.1.0"`), then `npm install && npm run build && npm run package:dev` — see
+   [Building and Packaging § Versioning](Building-and-Packaging.md#versioning--three-numbers-that-can-drift-independently)
+   for the manual path in full.
+2. Get it into the Marketplace **privately**, either in one shot from the CLI, or via the web UI.
 
    **CLI, one shot** (packages + uploads + shares in a single command). You'll need a personal
    access token with **Marketplace (publish)** scope (create one under
@@ -69,16 +70,16 @@ anything — good for "install it in the org and just use it" testing, including
    **Web UI** (if you'd rather not create a PAT, or want to eyeball the listing before it goes
    anywhere):
    1. Go to https://marketplace.visualstudio.com/manage → select your publisher.
-   2. **New extension → Azure DevOps** → upload the `.vsix` from step 3. It appears in your
+   2. **New extension → Azure DevOps** → upload the `.vsix` from step 1. It appears in your
       publisher's list — at this point it's visible to **only you**, not shared with anyone.
    3. Right-click it → **Share/Unshare** → enter your organization's name (the `{organization}` in
       `https://dev.azure.com/{organization}`) → Enter.
 
-5. Install it into the org:
+3. Install it into the org:
    - Sign in to `https://dev.azure.com/{your-org}` → **Organization Settings → Extensions →
      Browse Marketplace**, find it (it'll show as shared-with-you rather than in public search) →
      **Get it free** → **Install**.
-6. Verify: add the `sbom-tool` task to a pipeline, run it, then open the build's **SBOM** results
+4. Verify: add the `sbom-tool` task to a pipeline, run it, then open the build's **SBOM** results
    tab.
 
 ### Updating later
@@ -103,7 +104,7 @@ skips the version-placeholder edit entirely since the base manifest already has 
    npm run package
    # -> dist/sbom-tool-local-0.0.<patch>.vsix
    ```
-3. Upload/share/install exactly as in steps 4–5 above (publisher, `--share-with`/Share, install
+3. Upload/share/install exactly as in steps 2–3 above (publisher, `--share-with`/Share, install
    from Organization Settings).
 4. Because this manifest's `baseUri` is `https://localhost:3000/`, the installed extension's report
    tab iframe loads live from your dev machine. Edit files under `ui/`, refresh the ADO browser tab

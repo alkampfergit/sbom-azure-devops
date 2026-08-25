@@ -12,18 +12,18 @@
 ## Release pipeline (`tfx-extension.yml`)
 
 1. Checkout with full history (`fetch-depth: 0`, required for GitVersion).
-2. **GitVersion** (`gittools/actions/gitversion`, config `GitVersion.yml`: `main` branch → `ci`
-   label, PRs → `pr` label) computes `majorMinorPatch`.
-3. `cschleiden/replace-tokens` substitutes `MAJOR_MINOR_PATCH` / `BUILD_NUMBER`
-   (`github.run_number`) into the `#{...}#` placeholders inside
-   `vss-extension.overrides.*.json`.
-4. `jq` stamps the same major/minor into `task/task.json`'s `version`, and `github.run_number` into
-   its `Patch`.
-5. `npm install`, `npm run build`, `npm test`.
-6. `npm run package:dev` and `npm run package:prod` — produces `dist/dev/*.vsix` and
-   `dist/prod/*.vsix`.
-7. Uploads both as a single `drop` artifact.
-8. **`publish` job** (needs `build`):
+2. Set up Node.js 20.1.x.
+3. **`./build.ps1 -BuildNumber ${{ github.run_number }}`** (via `shell: pwsh`) — this one script
+   _is_ the entire rest of the job: it computes the version with GitVersion, stamps it into
+   `task/task.json` and both `vss-extension.overrides.*.json`, then runs `npm install`,
+   `npm run build`, `npm test`, `npm run package:dev`, `npm run package:prod`. See
+   [Building and Packaging § `build.ps1`](Building-and-Packaging.md#buildps1--the-real-build-job-runnable-anywhere)
+   for exactly what it does — it's the same script you'd run locally, so CI and local builds can't
+   drift apart. (Before this was pulled out into `build.ps1`, these steps were inlined directly in
+   the workflow using the `gittools/actions/gitversion` and `cschleiden/replace-tokens` GitHub
+   Actions plus a raw `jq` step — same net effect, just not runnable outside CI.)
+4. Uploads `dist/*` (both `dev/` and `prod/` vsix output) as a single `drop` artifact.
+5. **`publish` job** (needs `build`):
    - Downloads the `drop` artifact.
    - On a tag push: creates/updates a **draft** GitHub Release with both `.vsix` files attached
      (`ncipollo/release-action`).
