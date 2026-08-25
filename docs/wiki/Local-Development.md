@@ -4,8 +4,8 @@
 
 - Node.js **20.1.x** (matches CI — see `.github/workflows/build.yml`; the task's runtime handler
   is also `Node20_1`, so staying close to this version avoids surprises).
-- Nothing else is required to build — `sbom-tool` itself is downloaded by the task at *pipeline
-  run* time, not at build time, so you don't need it installed to develop/build/test this repo.
+- Nothing else is required to build — `sbom-tool` itself is downloaded by the task at _pipeline
+  run_ time, not at build time, so you don't need it installed to develop/build/test this repo.
 
 ## Bootstrap
 
@@ -33,6 +33,7 @@ Both webpack configs always minify with `TerserPlugin` (even in `development` mo
 development` mainly affects webpack's own logging/optimizations, not minification here.
 
 Outputs:
+
 - `task/dist/task/index.js` + copied `task/task.json`, `images/icon.png`, and the
   `@vizdom/vizdom-ts-node` `*.wasm` file (via `CopyWebpackPlugin`).
 - `ui/dist/ui/sbom-report-tab.js` + `sbom-report-tab.html`.
@@ -99,7 +100,7 @@ Starts `webpack-dev-server` on `https://localhost:3000` (self-signed cert — Az
 HTTPS for extension iframes) and opens `/ui/sbom-report-tab.html`. On its own, outside of an actual
 Azure DevOps build page, `SDK.init()`/`SDK.ready()` will fail (there's no ADO host frame to talk
 to) — so this is primarily useful in combination with the `sbom-tool-local` manifest variant's
-`baseUri: https://localhost:3000/`, which makes a *real, installed* extension load its UI from this
+`baseUri: https://localhost:3000/`, which makes a _real, installed_ extension load its UI from this
 dev server instead of from packaged files. See
 [Manual Private Install § Faster inner loop](Manual-Private-Install.md#faster-inner-loop-sbom-tool-local-variant-ui-only-iteration)
 for the full loop.

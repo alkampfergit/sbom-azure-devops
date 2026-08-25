@@ -22,15 +22,15 @@
 
 `shared/spdx/models/2.3/`:
 
-| File | Contents |
-|---|---|
-| `document.ts` | `IDocument`, `DocumentVersion`, `getDisplayNameForDocument`, `isPackageRootLevel` |
-| `package.ts` | `IPackage`, `getPackageLicenseExpression`, `getPackageSupplierOrganization` |
-| `file.ts` | `IFile` |
-| `relationship.ts` | SPDX relationship types (`DESCRIBES`, `CONTAINS`, `DEPENDS_ON`, …) |
-| `externalRef.ts` | `ExternalRefCategory` (`PackageManager`/`Security`/…), `ExternalRefPackageManagerType`, `ExternalRefSecurityType` (`Advisory`/`Url`), `parseExternalRefsAs<T>()` |
-| `license.ts` | `ILicense`, `getLicensesFromExpression()` (SPDX license-expression parsing, backed by `spdx-expression-parse` + `spdx-license-list`) |
-| `checksum.ts`, `packageVerificationCode.ts`, `creationInfo.ts`, `constants.ts` (e.g. `NOASSERTION`) | supporting types |
+| File                                                                                                | Contents                                                                                                                                                         |
+| --------------------------------------------------------------------------------------------------- | ---------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `document.ts`                                                                                       | `IDocument`, `DocumentVersion`, `getDisplayNameForDocument`, `isPackageRootLevel`                                                                                |
+| `package.ts`                                                                                        | `IPackage`, `getPackageLicenseExpression`, `getPackageSupplierOrganization`                                                                                      |
+| `file.ts`                                                                                           | `IFile`                                                                                                                                                          |
+| `relationship.ts`                                                                                   | SPDX relationship types (`DESCRIBES`, `CONTAINS`, `DEPENDS_ON`, …)                                                                                               |
+| `externalRef.ts`                                                                                    | `ExternalRefCategory` (`PackageManager`/`Security`/…), `ExternalRefPackageManagerType`, `ExternalRefSecurityType` (`Advisory`/`Url`), `parseExternalRefsAs<T>()` |
+| `license.ts`                                                                                        | `ILicense`, `getLicensesFromExpression()` (SPDX license-expression parsing, backed by `spdx-expression-parse` + `spdx-license-list`)                             |
+| `checksum.ts`, `packageVerificationCode.ts`, `creationInfo.ts`, `constants.ts` (e.g. `NOASSERTION`) | supporting types                                                                                                                                                 |
 
 `document.test.ts` and `convertSpdxToXlsxAsync`'s test (`shared/spdx/convertSpdxToXlsx.test.ts`) are
 the only automated coverage for this layer — worth extending if you touch model shapes.
@@ -39,8 +39,9 @@ the only automated coverage for this layer — worth extending if you touch mode
 
 Used by the UI (see [UI Report Tab](UI-Report-Tab.md)) when a build produced more than one SBOM.
 `mergeSpdxDocuments(packageName, packageVersion, sourceDocuments)`:
+
 1. Renames each document's `SPDXRef-RootPackage` to a unique id
-   (`SPDXRef-Package-{sanitizedName}-{uuid}`) — every source doc has a root package with the *same*
+   (`SPDXRef-Package-{sanitizedName}-{uuid}`) — every source doc has a root package with the _same_
    id, so this avoids collisions once concatenated. Renaming also patches every relationship /
    `documentDescribes` entry that pointed at the old id.
 2. Renames files similarly, prefixing each file's id with its owning package name (or an MD5 hash of
@@ -49,7 +50,7 @@ Used by the UI (see [UI Report Tab](UI-Report-Tab.md)) when a build produced mor
 3. Concatenates `files`/`packages` (de-duped by `SPDXID`)/`externalDocumentRefs`/`relationships`/
    `documentDescribes` across all source documents.
 4. Produces a new `documentNamespace` (`{scheme}://{host}/{packageName}/{packageVersion}/{new-guid}`,
-   host taken from the *first* source document's namespace) and a fresh `creationInfo` (creator
+   host taken from the _first_ source document's namespace) and a fresh `creationInfo` (creator
    organization inherited from the first source document, tool creator hardcoded to
    `rhyskoedijk/sbom-azure-devops`).
 5. Always stamps `spdxVersion: SPDX_2_3` on the result, regardless of the source documents'

@@ -6,18 +6,19 @@ the `dev` manifest variant) to test a build before promoting it to the public `p
 
 ## The one thing to know going in
 
-**For Azure DevOps *Services* (`dev.azure.com`, the cloud product), there's no way to sideload a
+**For Azure DevOps _Services_ (`dev.azure.com`, the cloud product), there's no way to sideload a
 `.vsix` straight into an org.** Every install — even a fully private, unlisted one — goes through
-the Visual Studio Marketplace *publisher* pipeline. "Private" just means you leave `public: false`
-in the manifest and *share* the extension with your org instead of listing it publicly; the
+the Visual Studio Marketplace _publisher_ pipeline. "Private" just means you leave `public: false`
+in the manifest and _share_ the extension with your org instead of listing it publicly; the
 extension is never visible to anyone else, but the upload step itself is still a Marketplace
-action. (Azure DevOps *Server*, the on-prem product, is different — see
+action. (Azure DevOps _Server_, the on-prem product, is different — see
 [On-prem alternative](#on-prem-alternative-azure-devops-server) below.)
 
 ## Prerequisite: a Marketplace publisher you control
 
 `vss-extension.json`'s `publisher` field is `rhyskoedijk`. Unless you're added as a member of that
 publisher account, you can't upload under it. Either:
+
 - ask the current publisher to add you as a member, **or**
 - register your own publisher for free at https://marketplace.visualstudio.com/manage (needs a
   Microsoft/Azure DevOps account, accepting the
@@ -52,12 +53,14 @@ anything — good for "install it in the org and just use it" testing, including
    access token with **Marketplace (publish)** scope (create one under
    `https://dev.azure.com/{your-org}/_usersSettings/tokens`, or use a Microsoft Entra token —
    preferred by Microsoft's current guidance over PATs where available):
+
    ```bash
    npx tfx-cli extension publish \
      --manifests vss-extension.json --overrides-file vss-extension.overrides.dev.json \
      --auth-type pat --token <PAT> \
      --share-with <your-org-name>
    ```
+
    This is literally the same shape of command the repo's own CI uses for its `dev` channel (see
    `.github/workflows/tfx-extension.yml`'s "Publish to marketplace (dev)" step) — just run from
    your machine instead of GitHub Actions, and sharing with your own org instead of the
@@ -70,6 +73,7 @@ anything — good for "install it in the org and just use it" testing, including
       publisher's list — at this point it's visible to **only you**, not shared with anyone.
    3. Right-click it → **Share/Unshare** → enter your organization's name (the `{organization}` in
       `https://dev.azure.com/{organization}`) → Enter.
+
 5. Install it into the org:
    - Sign in to `https://dev.azure.com/{your-org}` → **Organization Settings → Extensions →
      Browse Marketplace**, find it (it'll show as shared-with-you rather than in public search) →
@@ -106,6 +110,7 @@ skips the version-placeholder edit entirely since the base manifest already has 
    — no repackage, re-upload, or reinstall needed.
 
 Caveats:
+
 - Only works in a browser running on (or able to reach) the machine that has `start:ui` running,
   and only after you accept the self-signed localhost cert in that browser (visit
   `https://localhost:3000/` directly once and click through the warning).

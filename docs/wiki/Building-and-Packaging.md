@@ -10,11 +10,11 @@ The base manifest is `vss-extension.json`. Two override files layer a handful of
 it at package time (`tfx-cli extension create --overrides-file <file>` deep-merges the override
 JSON over the base):
 
-| Variant | Manifest used | `id` | `name` | `public` | `baseUri` |
-|---|---|---|---|---|---|
-| **local** | `vss-extension.json` (no override) | `sbom-tool-local` | `SBOM Tool [LOCALHOST]` | `false` | `https://localhost:3000/` |
-| **dev** | + `vss-extension.overrides.dev.json` | `sbom-tool-dev` | `SBOM Tool [DEV]` | `false` | `null` |
-| **prod** | + `vss-extension.overrides.prod.json` | `sbom-tool` | `SBOM Tool` | `true` | `null` |
+| Variant   | Manifest used                         | `id`              | `name`                  | `public` | `baseUri`                 |
+| --------- | ------------------------------------- | ----------------- | ----------------------- | -------- | ------------------------- |
+| **local** | `vss-extension.json` (no override)    | `sbom-tool-local` | `SBOM Tool [LOCALHOST]` | `false`  | `https://localhost:3000/` |
+| **dev**   | + `vss-extension.overrides.dev.json`  | `sbom-tool-dev`   | `SBOM Tool [DEV]`       | `false`  | `null`                    |
+| **prod**  | + `vss-extension.overrides.prod.json` | `sbom-tool`       | `SBOM Tool`             | `true`   | `null`                    |
 
 Root npm scripts:
 
@@ -49,7 +49,7 @@ is affected by it, since the task itself runs on a pipeline agent, not in a brow
    `GitVersion.yml` — `main` branch → `ci` label, PRs → `pr` label) to compute
    `majorMinorPatch`, then `cschleiden/replace-tokens` substitutes
    `MAJOR_MINOR_PATCH`/`BUILD_NUMBER` (the latter is `github.run_number`) into both override files.
-3. **`task/task.json`'s own `version.{Major,Minor,Patch}`** (the *task*'s version, independent of
+3. **`task/task.json`'s own `version.{Major,Minor,Patch}`** (the _task_'s version, independent of
    the extension package version — Azure DevOps pipelines pin a task by this). In CI this is set
    via `jq` from the same GitVersion output + `github.run_number`.
 

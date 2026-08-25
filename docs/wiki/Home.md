@@ -2,7 +2,7 @@
 
 Developer/contributor wiki for this repository. This is the **source of truth**; it is authored
 under `docs/wiki/` in the main repo (reviewed via PR like any other code) and mirrored to the
-[GitHub Wiki](../../wiki) for browsing. If you're only looking for *end-user* install/usage
+[GitHub Wiki](../../wiki) for browsing. If you're only looking for _end-user_ install/usage
 instructions (the marketplace listing content), see [`README.md`](../../README.md) instead — this
 wiki is for people building, packaging, installing privately, or extending the extension.
 
@@ -21,7 +21,7 @@ wiki is for people building, packaging, installing privately, or extending the e
   (local/dev/prod), how versioning works (`GitVersion`, `task.json`, token placeholders), producing
   a `.vsix` with `tfx-cli`.
 - **[Manual Private Install](Manual-Private-Install.md)** — step-by-step: build locally and get the
-  extension running in *your own* Azure DevOps org without a public Marketplace listing.
+  extension running in _your own_ Azure DevOps org without a public Marketplace listing.
 - **[Task Reference](Task-Reference.md)** — every `sbom-tool` pipeline task input, defaults,
   visibility rules, and YAML examples.
 - **[SPDX and Data Model](SPDX-and-Data-Model.md)** — SPDX 2.2/2.3 models, multi-manifest merging,

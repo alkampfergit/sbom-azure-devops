@@ -2,12 +2,12 @@
 
 ## GitHub Actions workflows (`.github/workflows/`)
 
-| Workflow | Trigger | What it does |
-|---|---|---|
-| `build.yml` | push/PR to `main` | Node 20.1.x, `npm install`, `npm run build`, `npm test`. The baseline "does it compile and pass tests" gate. |
-| `prettier.yml` | push/PR to `main` | `npm install`, `npm run format:check`. Fails on unformatted files. |
-| `codespell.yml` | push/PR to `main` | Runs [`codespell-project/actions-codespell`](https://github.com/codespell-project/actions-codespell) against the whole repo (config: `.codespellrc` — skips `node_modules`, `package-lock.json`, `*.js`). |
-| `tfx-extension.yml` | push to `main`, and any tag push | The release pipeline — see below. |
+| Workflow            | Trigger                          | What it does                                                                                                                                                                                              |
+| ------------------- | -------------------------------- | --------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `build.yml`         | push/PR to `main`                | Node 20.1.x, `npm install`, `npm run build`, `npm test`. The baseline "does it compile and pass tests" gate.                                                                                              |
+| `prettier.yml`      | push/PR to `main`                | `npm install`, `npm run format:check`. Fails on unformatted files.                                                                                                                                        |
+| `codespell.yml`     | push/PR to `main`                | Runs [`codespell-project/actions-codespell`](https://github.com/codespell-project/actions-codespell) against the whole repo (config: `.codespellrc` — skips `node_modules`, `package-lock.json`, `*.js`). |
+| `tfx-extension.yml` | push to `main`, and any tag push | The release pipeline — see below.                                                                                                                                                                         |
 
 ## Release pipeline (`tfx-extension.yml`)
 

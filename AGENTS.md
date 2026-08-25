@@ -21,12 +21,12 @@ identity (see below), you'll need to change the `publisher` field in `vss-extens
 Root `package.json` has **no dependencies of its own** — it only orchestrates 3 independent
 sub-projects, each with its own `package.json`/`package-lock.json`/`node_modules`:
 
-| Dir | Purpose | Runtime target |
-|---|---|---|
-| `shared/` | Pure TypeScript, no bundler of its own. SPDX 2.3 model/types, SPDX→XLSX / SPDX→SVG conversion, SPDX document merging, GHSA (GitHub Advisory) API client, small `Array`/`Number`/`String` prototype extensions. | consumed as **source**, not a package |
-| `task/` | The Azure Pipelines task (`sbom-tool` task, id `79d7e0df-bd9a-4658-9897-ae059fc992c5`). Node.js, runs `sbom-tool` CLI (auto-installed via brew/winget/curl if missing), post-processes the SPDX output (security advisories, XLSX, SVG), attaches files to the build timeline. | Node20_1 agent handler (webpack `target: 'node'`) |
-| `ui/` | The "SBOM" build-results tab. React + `azure-devops-ui`/`azure-devops-extension-sdk`, reads SPDX JSON build attachments via the Build REST API and renders package/license/vulnerability tables + a zoom/pan SVG relationship graph. | browser (webpack `target: 'web'`) |
-| `tests/` | Fixture data only (`tests/spdx/manifest.spdx.json`) — no test runner config here. | — |
+| Dir       | Purpose                                                                                                                                                                                                                                                                        | Runtime target                                    |
+| --------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------ | ------------------------------------------------- |
+| `shared/` | Pure TypeScript, no bundler of its own. SPDX 2.3 model/types, SPDX→XLSX / SPDX→SVG conversion, SPDX document merging, GHSA (GitHub Advisory) API client, small `Array`/`Number`/`String` prototype extensions.                                                                 | consumed as **source**, not a package             |
+| `task/`   | The Azure Pipelines task (`sbom-tool` task, id `79d7e0df-bd9a-4658-9897-ae059fc992c5`). Node.js, runs `sbom-tool` CLI (auto-installed via brew/winget/curl if missing), post-processes the SPDX output (security advisories, XLSX, SVG), attaches files to the build timeline. | Node20_1 agent handler (webpack `target: 'node'`) |
+| `ui/`     | The "SBOM" build-results tab. React + `azure-devops-ui`/`azure-devops-extension-sdk`, reads SPDX JSON build attachments via the Build REST API and renders package/license/vulnerability tables + a zoom/pan SVG relationship graph.                                           | browser (webpack `target: 'web'`)                 |
+| `tests/`  | Fixture data only (`tests/spdx/manifest.spdx.json`) — no test runner config here.                                                                                                                                                                                              | —                                                 |
 
 `shared/` is **not** an npm package — `task/` and `ui/` import it via relative paths
 (e.g. `import { ... } from '../../shared/spdx/...'`), and each side's own webpack config compiles
@@ -64,11 +64,11 @@ There is currently very little test coverage: only `shared/spdx/convertSpdxToXls
 There are **three parallel identities** for the same extension, distinguished only by which
 manifest override is applied on top of the base `vss-extension.json`:
 
-| Variant | Manifest | id | name | public | baseUri |
-|---|---|---|---|---|---|
-| local | `vss-extension.json` (base, no override) | `sbom-tool-local` | `SBOM Tool [LOCALHOST]` | `false` | `https://localhost:3000/` |
-| dev | `vss-extension.overrides.dev.json` | `sbom-tool-dev` | `SBOM Tool [DEV]` | `false` | `null` |
-| prod | `vss-extension.overrides.prod.json` | `sbom-tool` | `SBOM Tool` | `true` | `null` |
+| Variant | Manifest                                 | id                | name                    | public  | baseUri                   |
+| ------- | ---------------------------------------- | ----------------- | ----------------------- | ------- | ------------------------- |
+| local   | `vss-extension.json` (base, no override) | `sbom-tool-local` | `SBOM Tool [LOCALHOST]` | `false` | `https://localhost:3000/` |
+| dev     | `vss-extension.overrides.dev.json`       | `sbom-tool-dev`   | `SBOM Tool [DEV]`       | `false` | `null`                    |
+| prod    | `vss-extension.overrides.prod.json`      | `sbom-tool`       | `SBOM Tool`             | `true`  | `null`                    |
 
 Root scripts:
 
@@ -107,17 +107,18 @@ Details that matter when packaging manually:
 
 This is possible and is exactly how the maintainer tests before making a release public (see the
 `dev` variant above and the `publish` job in `.github/workflows/tfx-extension.yml`), but there's an
-important caveat: **for Azure DevOps *Services* (dev.azure.com / cloud), there is no way to sideload
+important caveat: **for Azure DevOps _Services_ (dev.azure.com / cloud), there is no way to sideload
 a `.vsix` directly into an org.** Every install — even a fully private, unlisted one — still goes
-through the Visual Studio Marketplace *publisher* pipeline; "private" just means you leave
-`public: false` and only *share* it with your org instead of making it publicly listed. (Azure DevOps
-*Server*, the on-prem product, is different: a Team Foundation Administrator can upload a `.vsix`
+through the Visual Studio Marketplace _publisher_ pipeline; "private" just means you leave
+`public: false` and only _share_ it with your org instead of making it publicly listed. (Azure DevOps
+_Server_, the on-prem product, is different: a Team Foundation Administrator can upload a `.vsix`
 straight into the server with no Marketplace involved at all — see "On-prem" below.)
 
 ### Prerequisite: a Marketplace publisher you control
 
 The manifest's `publisher` is `rhyskoedijk`. You almost certainly don't have upload rights to that
 publisher, so either:
+
 - ask to be added as a member of that publisher account, or
 - register your own publisher for free at https://marketplace.visualstudio.com/manage, then change
   `"publisher"` (and optionally `"id"`) in `vss-extension.json` / the override file you use to your
@@ -167,17 +168,23 @@ If you're only iterating on the **report tab UI** and don't need a fully portabl
 
 ### On-prem (Azure DevOps Server) alternative
 
-If the target is Azure DevOps *Server* rather than the cloud service, a member of the **Team
+If the target is Azure DevOps _Server_ rather than the cloud service, a member of the **Team
 Foundation Administrators** group with **Edit instance-level information** permission can upload
 the `.vsix` directly to the server (no Marketplace, no publisher account, no sharing step) via the
 server's own extensions admin page. This is the closest thing to a true "sideload."
 
 ## Notes for extending this extension
 
-- Pipeline task entry point: `task/index.ts` (`run()`), currently only implements the `generate`
-  command (`validate`/`redact` are stubbed with `throw new Error('Not implemented')`). Inputs are
-  declared in `task/task.json` and must stay in sync with what `task/index.ts` reads via
-  `getInput`/`getBoolInput`.
+- Pipeline task entry point: `task/index.ts` (`run()`), implements `generate` (runs `sbom-tool`)
+  and `import` (attaches an already-generated SPDX file, skipping the `sbom-tool` CLI entirely —
+  see `SbomTool.importAsync` in `task/utils/sbomTool.ts`); `validate`/`redact` are still stubbed
+  with `throw new Error('Not implemented')`. Inputs are declared in `task/task.json` and must stay
+  in sync with what `task/index.ts` reads via `getInput`/`getBoolInput`.
+- The UI's "Upload SPDX" button (`ui/components/sbom/documentHeader.tsx`) used to only render when
+  `window.location.hostname === 'localhost'` (a debug-only affordance) — this gate has been
+  removed, so it's now available on any real installed extension too, as a second way to view an
+  externally-generated SBOM without running the task at all (once at least one artifact tab is
+  already open).
 - Core orchestration of the `sbom-tool` CLI itself lives in `task/utils/sbomTool.ts`
   (`SbomTool.generateAsync`) — it locates/installs the `sbom-tool` binary, shells out to it, then
   post-processes the resulting `_manifest/spdx_2.2/manifest.spdx.json` (security advisories via

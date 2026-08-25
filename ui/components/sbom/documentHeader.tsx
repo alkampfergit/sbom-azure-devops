@@ -39,12 +39,8 @@ export class SbomDocumentHeader extends React.Component<Props, State> {
   }
 
   static getDerivedStateFromProps(props: Props): State {
-    const isDebug = window.location.hostname === 'localhost';
     return {
-      commandBarItems: SbomDocumentHeader.getCommandBarItems(
-        props.artifact,
-        isDebug ? props.onLoadArtifacts : undefined,
-      ),
+      commandBarItems: SbomDocumentHeader.getCommandBarItems(props.artifact, props.onLoadArtifacts),
       documentName: props.artifact.spdxDocument.name,
       documentSpdxVersion: props.artifact.spdxDocument.spdxVersion,
       documentDataLicense: props.artifact.spdxDocument.dataLicense,

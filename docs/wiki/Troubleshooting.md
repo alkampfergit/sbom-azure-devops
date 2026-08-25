@@ -26,6 +26,7 @@ whether to rename the `task.json` input to match the code, or fix the code to re
 `externalDocumentReferenceList` — then update [Task Reference](Task-Reference.md) and the README
 accordingly. This class of bug (declared input name ≠ `getInput(...)` argument) has no compiler or
 runtime check, so it's worth grepping for whenever you touch `task.json`:
+
 ```bash
 # sanity-check every task.json input name is actually read somewhere in task/index.ts or task/utils/**
 ```
@@ -51,11 +52,12 @@ Your PAT needs the **Marketplace (publish)** scope specifically (not just "read"
 Microsoft's [publish-from-the-command-line docs](https://learn.microsoft.com/azure/devops/extend/publish/command-line).
 
 **Extension installs, but I don't see the "SBOM" tab on a build.**
+
 - Confirm the build actually ran the `sbom-tool` task (contribution's `supportsTasks` restricts the
   tab to builds that ran task id `79d7e0df-bd9a-4658-9897-ae059fc992c5`).
 - Confirm the task run actually attached files — check the build log for the `addAttachment(...)`
   calls in `task/utils/sbomTool.ts` (search the log for `Generate SBOM for`); if `sbom-tool
-  generate` itself failed, no attachment is created and the tab will show "No artifacts found."
+generate` itself failed, no attachment is created and the tab will show "No artifacts found."
 - If you're on the `sbom-tool-local` variant (`baseUri: https://localhost:3000/`) and aren't running
   `npm run start:ui` on the viewing machine, the tab iframe has nothing to load from — use the
   `dev`/`prod` variant instead for anyone besides your own dev machine. See
@@ -71,6 +73,7 @@ a release asset. Check `Agent.OS`/`Agent.OSArchitecture` and try installing that
 release/architecture combination manually on the agent to confirm.
 
 **GitHub Advisory (GHSA) enrichment finds nothing / errors out.**
+
 - `fetchSecurityAdvisories: true` requires a working `gitHubConnection` or `gitHubAccessToken` — see
   `task/utils/azurePipelines/accessTokens.ts` for how the token is resolved; a misconfigured
   service connection scheme (anything other than `PersonalAccessToken`/`OAuth`/`Token`) throws.

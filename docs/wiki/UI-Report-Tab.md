@@ -29,10 +29,25 @@ Entry point: `ui/sbom-report-tab.tsx` (webpack entry `sbom-report-tab`, HTML she
 ## Manual upload fallback
 
 Independently of build attachments, `Root.loadSbomArtifactsFromFileUpload(files)` lets a user
-upload their own SPDX JSON file(s) from disk (surfaced as a button somewhere under
-`SbomDocumentHeader` → `onLoadArtifacts` prop, threaded down through `SbomDocumentPage`). Useful for
-viewing a manifest that wasn't produced by a build on this org (e.g. generated elsewhere, or from
-an older run) using the same rendering UI.
+upload their own SPDX JSON file(s) from disk, surfaced as an **"Upload SPDX"** command-bar item in
+`SbomDocumentHeader` (`ui/components/sbom/documentHeader.tsx`, `getCommandBarItems`), threaded down
+via the `onLoadArtifacts` prop through `SbomDocumentPage`. Useful for viewing a manifest that wasn't
+produced by a build on this org (e.g. generated elsewhere, or from an older run) using the same
+rendering UI.
+
+Until recently this button only rendered when `window.location.hostname === 'localhost'` — i.e. it
+was a debug-only affordance that never actually appeared for a real installed extension (only
+during the maintainer's own `sbom-tool-local` + `start:ui` loopback dev loop). That gate has been
+removed, so the button is now generally available. Two caveats remain:
+
+- It's still only reachable once at least one artifact is already loaded — `SbomDocumentHeader`
+  (and its command bar) only renders once `state.artifacts.length >= 1` in `documentPage.tsx`. The
+  "SBOM" tab itself is still gated by `supportsTasks` (see [Architecture](Architecture.md)), so a
+  build that never ran this task still won't show the tab at all — uploading a file only helps once
+  you're already looking at _some_ artifact.
+- For a build-integrated (no manual clicking) way to attach an externally-generated SBOM, prefer
+  the task's `import` command instead — see
+  [Task Reference § Import command](Task-Reference.md#import-command).
 
 ## Component tree
 
@@ -52,11 +67,13 @@ Root (sbom-report-tab.tsx)
 ```
 
 All built with Microsoft's `azure-devops-ui` component kit (`Page`, `TabBar`, `Tab`, `Filter`
-+ `InlineKeywordFilterBarItem` for the shared keyword filter bar across table tabs,
-`ObservableValue`/`Observer` for the tab-selection state pattern used throughout).
+
+- `InlineKeywordFilterBarItem` for the shared keyword filter bar across table tabs,
+  `ObservableValue`/`Observer` for the tab-selection state pattern used throughout).
 
 `SbomDocumentPage.getDerivedStateFromProps` is where most of the per-artifact derived data is
 computed once per artifact change:
+
 - `packages` — all SPDX packages **excluding** the document's own root/described package
   (`isPackageRootLevel`).
 - `securityAdvisories` — for each package, tries the new-style `externalRefs`

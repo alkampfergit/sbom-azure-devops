@@ -6,12 +6,12 @@ A monorepo-by-convention (not npm/yarn workspaces) with 3 independently-built su
 with its own `package.json`/`package-lock.json`/`node_modules`, plus a `shared/` source folder
 consumed by both:
 
-| Dir | What | Bundled with | Output |
-|---|---|---|---|
-| `shared/` | Pure TS: SPDX 2.3 model types, SPDX↔XLSX/SVG conversion, SPDX document merging, GHSA (GitHub Advisory) GraphQL client, `Array`/`Number`/`String` prototype extensions | — (compiled in-place by each consumer's webpack) | n/a — not published, consumed as source |
-| `task/` | The Azure Pipelines task | webpack, `target: 'node'` | `task/dist/task/{index.js, task.json, icon.png, *.wasm}` |
-| `ui/` | The "SBOM" build-results tab | webpack, `target: 'web'` | `ui/dist/ui/{sbom-report-tab.js, sbom-report-tab.html}` |
-| `tests/` | Fixture data (`tests/spdx/manifest.spdx.json`) only, no runner config | — | — |
+| Dir       | What                                                                                                                                                                  | Bundled with                                     | Output                                                   |
+| --------- | --------------------------------------------------------------------------------------------------------------------------------------------------------------------- | ------------------------------------------------ | -------------------------------------------------------- |
+| `shared/` | Pure TS: SPDX 2.3 model types, SPDX↔XLSX/SVG conversion, SPDX document merging, GHSA (GitHub Advisory) GraphQL client, `Array`/`Number`/`String` prototype extensions | — (compiled in-place by each consumer's webpack) | n/a — not published, consumed as source                  |
+| `task/`   | The Azure Pipelines task                                                                                                                                              | webpack, `target: 'node'`                        | `task/dist/task/{index.js, task.json, icon.png, *.wasm}` |
+| `ui/`     | The "SBOM" build-results tab                                                                                                                                          | webpack, `target: 'web'`                         | `ui/dist/ui/{sbom-report-tab.js, sbom-report-tab.html}`  |
+| `tests/`  | Fixture data (`tests/spdx/manifest.spdx.json`) only, no runner config                                                                                                 | —                                                | —                                                        |
 
 Root `package.json` has no dependencies of its own — `scripts.postinstall` runs `npm install`
 inside `shared`, `task`, and `ui`, so one `npm install` at the root bootstraps everything (see
@@ -69,6 +69,7 @@ match produces its **own** SBOM manifest (see `task/index.ts`, which loops
 `packageSourcePaths`). When the report tab finds more than one `spdx.json` attachment for a build,
 it synthesizes an extra "All Manifests" document by calling `shared/spdx/mergeSpdxDocuments.ts`,
 which:
+
 - renames each document's root package + files to avoid SPDX-ID collisions,
 - concatenates `files`/`packages`/`relationships`/`externalDocumentRefs`/`documentDescribes`,
 - de-dupes packages by `SPDXID`.
