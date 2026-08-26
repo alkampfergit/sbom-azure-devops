@@ -1,0 +1,79 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://raw.githubusercontent.com/alkampfergit/sbom-azure-devops/main/docs/schemas/vulnerabilities-source.schema.json",
+  "title": "sbom-tool vulnerabilitiesSource file",
+  "description": "Shape of each file referenced by the sbom-tool@1 task's `vulnerabilitiesSource` input. Mirrors `IExternalVulnerability` in shared/ghsa/models/externalVulnerability.ts -- keep both in sync if you change one. See docs/wiki/Task-Reference.md#vulnerabilitiessource-format for the full write-up.",
+  "type": "array",
+  "items": {
+    "$ref": "#/$defs/externalVulnerability"
+  },
+  "$defs": {
+    "externalVulnerability": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["packageName", "id", "severity"],
+      "properties": {
+        "packageName": {
+          "type": "string",
+          "minLength": 1,
+          "description": "Name of the affected package. Matched case-insensitively against the SBOM package's `name` field. No purl/ecosystem matching is performed, so this must match the SBOM's own package name exactly (e.g. the bare npm package name, or the NuGet package id)."
+        },
+        "packageVersion": {
+          "type": "string",
+          "minLength": 1,
+          "description": "Affected package version, matched exactly against the SBOM package's `versionInfo`. If omitted, the vulnerability is applied to every SBOM package matching `packageName`, regardless of version."
+        },
+        "id": {
+          "type": "string",
+          "minLength": 1,
+          "description": "Advisory identifier: a GHSA id (e.g. \"GHSA-xxxx-xxxx-xxxx\"), a CVE id, or any other identifier string from your scanner. Used to derive a fallback advisory URL when `url` is omitted."
+        },
+        "cveId": {
+          "type": "string",
+          "pattern": "^CVE-[0-9]{4}-[0-9]{4,}$",
+          "description": "CVE identifier, if `id` above isn't already a CVE id. Also used to derive a fallback advisory URL (NVD) when `url` is omitted."
+        },
+        "severity": {
+          "$ref": "#/$defs/severity"
+        },
+        "summary": {
+          "type": "string",
+          "description": "One-line title, shown in the report tab's advisory list and as part of the human-readable external reference comment."
+        },
+        "description": {
+          "type": "string",
+          "description": "Longer free-text description, shown in the report tab's advisory detail view."
+        },
+        "url": {
+          "type": "string",
+          "format": "uri",
+          "description": "Link to the advisory page. If omitted, a best-effort link is derived from `cveId` (NVD) or a `GHSA-*` `id` (GitHub Advisories); if neither is available, a synthetic `urn:vulnerability:...` identifier is used instead so the entry still dedupes correctly in the report tab."
+        },
+        "vulnerableVersionRange": {
+          "type": "string",
+          "description": "Human-readable affected version range, e.g. \"<=1.8.4\" or \"20.0.0-next.0 - 20.3.26\". Not parsed/validated -- shown as-is in the report tab."
+        },
+        "fixedVersion": {
+          "type": "string",
+          "description": "First version that fixes the vulnerability, if known."
+        },
+        "cvssScore": {
+          "type": "number",
+          "minimum": 0,
+          "maximum": 10,
+          "description": "CVSS base score (0-10)."
+        },
+        "publishedAt": {
+          "type": "string",
+          "format": "date-time",
+          "description": "ISO 8601 timestamp the advisory was published."
+        }
+      }
+    },
+    "severity": {
+      "type": "string",
+      "enum": ["LOW", "MODERATE", "HIGH", "CRITICAL"],
+      "description": "Must match one of these values exactly (case-sensitive) -- mirrors SecurityAdvisorySeverity in shared/ghsa/models/securityAdvisory.ts."
+    }
+  }
+}

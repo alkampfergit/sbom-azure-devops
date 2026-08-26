@@ -125,6 +125,24 @@ Each referenced file must contain a JSON array of vulnerabilities in the followi
 Matched packages are enriched with the same security advisory external references that
 `fetchSecurityAdvisories` would have added, so they appear identically in the "SBOM" report tab.
 
+A formal [JSON Schema](docs/schemas/vulnerabilities-source.schema.json) and
+[example file](docs/schemas/vulnerabilities-source.example.json) are available if you want to
+validate your generated file before feeding it to the task, e.g. with
+[`ajv`](https://ajv.js.org/):
+
+```bash
+node -e "
+const Ajv2020 = require('ajv/dist/2020');
+const validate = new Ajv2020({ strict: false, validateFormats: false }).compile(require('./docs/schemas/vulnerabilities-source.schema.json'));
+const valid = validate(require('./my-report.json'));
+console.log(valid ? 'valid' : JSON.stringify(validate.errors, null, 2));
+"
+```
+
+The document root is a JSON array, so it can't carry an inline `"$schema"` property; in VS Code,
+associate it instead via the `json.schemas` setting (`fileMatch` + the schema's raw GitHub URL, from
+its `$id` field).
+
 ## Advanced
 
 - [`rhyskoedijk/sbom-azure-devops` GitHub project](https://github.com/rhyskoedijk/sbom-azure-devops)

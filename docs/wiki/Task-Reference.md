@@ -94,7 +94,13 @@ logic (`addSecurityAdvisoryExternalRefsToPackage`) as the GHSA-fetch path in
 in the "SBOM" report tab regardless of which source they came from.
 
 Each file resolved by `vulnerabilitiesSource` must contain a JSON array of objects matching
-`IExternalVulnerability` (`shared/ghsa/models/externalVulnerability.ts`):
+`IExternalVulnerability` (`shared/ghsa/models/externalVulnerability.ts`). A formal
+[JSON Schema](https://github.com/alkampfergit/sbom-azure-devops/blob/main/docs/schemas/vulnerabilities-source.schema.json)
+and [example file](https://github.com/alkampfergit/sbom-azure-devops/blob/main/docs/schemas/vulnerabilities-source.example.json)
+live under `docs/schemas/` in the main repo (not mirrored to the wiki, since the wiki sync only
+copies `docs/wiki/*.md` — see [§ Syncing docs/wiki to the GitHub Wiki](Contributing-and-CI.md#syncing-docswiki-to-the-github-wiki)).
+Point your editor or a validator (e.g. `ajv`) at the schema to catch typos before running the
+pipeline:
 
 | Field                    | Required | Notes                                                                                                                                                                                                                                                    |
 | ------------------------ | -------- | -------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
