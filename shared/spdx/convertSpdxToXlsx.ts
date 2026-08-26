@@ -40,7 +40,15 @@ const MAX_CELL_LENGTH = 32767;
  * @return The SPDX as XLSX buffer
  */
 export async function convertSpdxToXlsxAsync(spdx: IDocument): Promise<Buffer> {
-  console.info('Parising SPDX document objects');
+  let checkpoint = Date.now();
+  const elapsed = () => {
+    const now = Date.now();
+    const seconds = ((now - checkpoint) / 1000).toFixed(2);
+    checkpoint = now;
+    return `${seconds}s`;
+  };
+
+  console.info('Parsing SPDX document objects');
   const relationships = spdx.relationships || [];
   const files = spdx.files || [];
   const packages = spdx.packages || [];
@@ -68,6 +76,7 @@ export async function convertSpdxToXlsxAsync(spdx: IDocument): Promise<Buffer> {
     .map((pkg) => getPackageSupplierOrganization(pkg))
     .filter((supplier): supplier is string => !!supplier)
     .distinct();
+  console.info(`Parsed SPDX document objects (${elapsed()})`);
 
   /**
    * Document sheet
@@ -100,11 +109,20 @@ export async function convertSpdxToXlsxAsync(spdx: IDocument): Promise<Buffer> {
       },
     ],
   };
+  console.info(`Generated document sheet (${elapsed()})`);
 
   /**
    * Files sheet
    */
   console.info(`Generating files sheet for ${files.length} row(s)`);
+  // Build a file-id -> owning-package-name lookup once, instead of scanning every package for
+  // every file (that's O(files * packages) and was the dominant cost for large SBOMs).
+  const packageNameByFileId = new Map<string, string>();
+  for (const pkg of packages) {
+    for (const fileId of pkg.hasFiles || []) {
+      packageNameByFileId.set(fileId, pkg.name);
+    }
+  }
   const filesSheet: IJsonSheet = {
     sheet: 'Files',
     columns: [
@@ -118,12 +136,13 @@ export async function convertSpdxToXlsxAsync(spdx: IDocument): Promise<Buffer> {
       .map((file: IFile) => {
         return {
           id: file.SPDXID,
-          package: packages.find((p) => p.hasFiles?.includes(file.SPDXID))?.name?.truncate(MAX_CELL_LENGTH) || '',
+          package: packageNameByFileId.get(file.SPDXID)?.truncate(MAX_CELL_LENGTH) || '',
           name: Path.normalize(file.fileName)?.truncate(MAX_CELL_LENGTH) || '',
           checksum: getChecksum(file.checksums, ChecksumAlgorithm.SHA256) || '',
         };
       }),
   };
+  console.info(`Generated files sheet (${elapsed()})`);
 
   /**
    * Packages sheet
@@ -192,11 +211,12 @@ export async function convertSpdxToXlsxAsync(spdx: IDocument): Promise<Buffer> {
         };
       }),
   };
+  console.info(`Generated packages sheet (${elapsed()})`);
 
   /**
    * Security advisories sheet
    */
-  console.info(`Generating security advisories sheet for ${packages.length} row(s)`);
+  console.info(`Generating security advisories sheet for ${securityAdvisories.length} row(s)`);
   const securityAdvisoriesSheet: IJsonSheet = {
     sheet: 'Security Advisories',
     columns: [
@@ -219,9 +239,6 @@ export async function convertSpdxToXlsxAsync(spdx: IDocument): Promise<Buffer> {
     content: securityAdvisories
       .orderBy((vuln: ISecurityVulnerability) => getSeverityByName(vuln.advisory.severity).weight, false)
       .map((vuln: ISecurityVulnerability) => {
-        const packageSpdxId = packages?.find(
-          (p) => p.name == vuln.package.name && p.versionInfo == vuln.package.version,
-        )?.SPDXID;
         return {
           ghsaId: vuln.advisory.identifiers.find((i) => i.type == SecurityAdvisoryIdentifierType.Ghsa)?.value || '',
           cveId: vuln.advisory.identifiers.find((i) => i.type == SecurityAdvisoryIdentifierType.Cve)?.value || '',
@@ -241,6 +258,7 @@ export async function convertSpdxToXlsxAsync(spdx: IDocument): Promise<Buffer> {
         };
       }),
   };
+  console.info(`Generated security advisories sheet (${elapsed()})`);
 
   /**
    * Licenses sheet
@@ -274,6 +292,7 @@ export async function convertSpdxToXlsxAsync(spdx: IDocument): Promise<Buffer> {
         };
       }),
   };
+  console.info(`Generated licenses sheet (${elapsed()})`);
 
   /**
    * Suppliers sheet
@@ -298,6 +317,7 @@ export async function convertSpdxToXlsxAsync(spdx: IDocument): Promise<Buffer> {
         };
       }),
   };
+  console.info(`Generated suppliers sheet (${elapsed()})`);
 
   /**
    * Relationships sheet
@@ -320,11 +340,12 @@ export async function convertSpdxToXlsxAsync(spdx: IDocument): Promise<Buffer> {
         };
       }),
   };
+  console.info(`Generated relationships sheet (${elapsed()})`);
 
   // Generate the XLSX document
   console.info('Writing XLSX workbook');
   const xlsx = require('json-as-xlsx');
-  return xlsx(
+  const workbook = xlsx(
     [
       documentSheet,
       filesSheet,
@@ -344,4 +365,6 @@ export async function convertSpdxToXlsxAsync(spdx: IDocument): Promise<Buffer> {
       },
     },
   );
+  console.info(`Wrote XLSX workbook (${elapsed()})`);
+  return workbook;
 }

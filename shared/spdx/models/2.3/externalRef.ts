@@ -65,8 +65,8 @@ export function parseExternalRefsAs<T>(
   }
 }
 
-export function getExternalRefPackageManagerName(externalRefs: IExternalRef[]): string | undefined {
-  const packageManager = externalRefs.find((ref) =>
+export function getExternalRefPackageManagerName(externalRefs: IExternalRef[] | undefined): string | undefined {
+  const packageManager = (externalRefs || []).find((ref) =>
     spdxConstantsAreEqual(ref.referenceCategory, ExternalRefCategory.PackageManager),
   );
   switch (packageManager?.referenceType) {
@@ -90,8 +90,8 @@ export function getExternalRefPackageManagerName(externalRefs: IExternalRef[]): 
   }
 }
 
-export function getExternalRefPackageManagerUrl(externalRefs: IExternalRef[]): string | undefined {
-  const packageManager = externalRefs.find((ref) =>
+export function getExternalRefPackageManagerUrl(externalRefs: IExternalRef[] | undefined): string | undefined {
+  const packageManager = (externalRefs || []).find((ref) =>
     spdxConstantsAreEqual(ref.referenceCategory, ExternalRefCategory.PackageManager),
   );
   switch (packageManager?.referenceType) {

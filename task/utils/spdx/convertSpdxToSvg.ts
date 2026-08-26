@@ -1,5 +1,4 @@
 import { EOL } from 'os';
-import * as path from 'path';
 
 // `getrandom` does not directly support ES Modules running on Node.js.
 // However, we can get it to work by adding a shim to the Web Cryptography API:
@@ -19,7 +18,6 @@ import { ExternalRefCategory, ExternalRefSecurityType } from '../../../shared/sp
 const VERTEX_DOC_FILL_COLOR = '#E0E0E0';
 const VERTEX_PKG_FILL_COLOR = '#E0E0E0';
 const VERTEX_REF_FILL_COLOR = '#FAFAFA';
-const VERTEX_FILE_FILL_COLOR = '#E0E0E0';
 const VERTEX_CRITICAL_FILL_COLOR = '#E57373';
 const VERTEX_HIGH_FILL_COLOR = '#FF8A65';
 const VERTEX_MODERATE_FILL_COLOR = '#FFB74D';
@@ -31,6 +29,14 @@ const VERTEX_LOW_FILL_COLOR = '#64B5F6';
  * @return The SPDX as SVG buffer
  */
 export async function convertSpdxToSvgAsync(spdx: IDocument): Promise<Buffer> {
+  let checkpoint = Date.now();
+  const elapsed = () => {
+    const now = Date.now();
+    const seconds = ((now - checkpoint) / 1000).toFixed(2);
+    checkpoint = now;
+    return `${seconds}s`;
+  };
+
   // Create a new graph
   const graph = new DirectedGraph();
   const vertices = new Map<string, VertexWeakRef>();
@@ -67,13 +73,10 @@ export async function convertSpdxToSvgAsync(spdx: IDocument): Promise<Buffer> {
 
     vertices.set(pkg.SPDXID, pkgVertex);
 
-    // Create vertices and edges for each file contained in the package
-    if (pkg.hasFiles) {
-      for (const fileId of pkg.hasFiles) {
-        const file = (spdx.files as any[]).find((f) => f.SPDXID === fileId);
-        graphFileAndParentDirectoriesRecursive(file, graph, vertices, pkgVertex);
-      }
-    }
+    // Note: individual files are deliberately not graphed here. For large SBOMs, files vastly
+    // outnumber packages/relationships and dominate both graph construction and layout time,
+    // while producing a diagram too dense to be readable anyway. Full file-level detail is
+    // still available in the XLSX/JSON exports; this graph focuses on package relationships.
 
     // Create vertices and edges for each external reference in the package
     if (pkg.externalRefs) {
@@ -141,6 +144,8 @@ export async function convertSpdxToSvgAsync(spdx: IDocument): Promise<Buffer> {
     }
   }
 
+  console.info(`Generated graph vertices and edges for ${spdx.packages?.length || 0} packages (${elapsed()})`);
+
   // Create edges for each relationship
   console.info(`Generating graph edges for ${spdx.relationships?.length || 0} relationships`);
   for (const relationship of spdx.relationships) {
@@ -154,68 +159,20 @@ export async function convertSpdxToSvgAsync(spdx: IDocument): Promise<Buffer> {
       });
     }
   }
+  console.info(`Generated graph edges (${elapsed()}); ${vertices.size} vertices total`);
 
-  // Position the graph
+  // Position the graph; for very large graphs (tens/hundreds of thousands of vertices) this
+  // layout step is typically the dominant cost, since layout algorithms are superlinear in the
+  // number of vertices/edges.
+  console.info('Positioning graph layout');
   const positioned = graph.layout();
+  console.info(`Positioned graph layout (${elapsed()})`);
 
   // Export the graph as SVG text
-  console.info(`Writing SVG image`);
-  return Buffer.from(positioned.to_svg().to_string(), 'utf8');
-}
-
-function graphFileAndParentDirectoriesRecursive(
-  node: any,
-  graph: DirectedGraph,
-  vertices: Map<string, VertexWeakRef>,
-  rootVertex: VertexWeakRef | undefined,
-) {
-  let nodeVertex: VertexWeakRef;
-  const nodePath = path.normalize(node.fileName);
-  const parentPath = nodePath.includes(path.sep) ? path.dirname(nodePath) : undefined;
-  if (parentPath) {
-    graphFileAndParentDirectoriesRecursive({ fileName: parentPath }, graph, vertices, rootVertex);
-  }
-
-  const isFile = node.SPDXID;
-  if (!isFile) {
-    if (vertices.get(nodePath)) {
-      return;
-    }
-
-    // Create a vertex for the directory, if it doesn't already exist
-    nodeVertex =
-      vertices.get(nodePath) ||
-      graph.new_vertex({
-        render: {
-          label: path.basename(nodePath),
-          tooltip: 'Directory',
-          fill_color: VERTEX_FILE_FILL_COLOR,
-        },
-      });
-
-    vertices.set(nodePath, nodeVertex);
-  } else {
-    // Create a vertex for the file
-    nodeVertex = graph.new_vertex({
-      render: {
-        label: path.basename(nodePath),
-        tooltip: (node.checksums as any[])?.map((c) => `${c.algorithm}: ${c.checksumValue}`)?.join(EOL),
-        fill_color: VERTEX_FILE_FILL_COLOR,
-      },
-    });
-
-    vertices.set(node.SPDXID, nodeVertex);
-  }
-
-  // Create an edge to the parent directory vertex, if any
-  const parentVertex = parentPath ? vertices.get(parentPath) : rootVertex;
-  if (parentVertex && nodeVertex) {
-    graph.new_edge(parentVertex, nodeVertex, {
-      render: {
-        label: normaliseEdgeLabel('CONTAINS'),
-      },
-    });
-  }
+  console.info('Writing SVG image');
+  const svg = Buffer.from(positioned.to_svg().to_string(), 'utf8');
+  console.info(`Wrote SVG image (${elapsed()})`);
+  return svg;
 }
 
 function parseSecurityAdvisory(externalRef: any): any {

@@ -56,18 +56,38 @@ export function getPackageAncestorDependencyPaths(document: IDocument, packageId
   const packages = (document.packages || []).filter((p) => {
     return hasMultipleRootPackages || !rootPackageIds.includes(p.SPDXID);
   });
+  const packagesById = new Map(packages.map((p) => [p.SPDXID, p]));
 
-  const currentPackage = packages.find((p) => p.SPDXID === packageId);
+  const currentPackage = packagesById.get(packageId);
   if (!currentPackage) {
     return [];
   }
 
+  // Index "DependsOn" relationships by their dependency (relatedSpdxElement) side, so "who
+  // depends on this package" is an O(1) lookup instead of rescanning every relationship at every
+  // step of the recursive walk below (this was O(relationships) per step, per package).
+  const dependsOnRelationshipsByRelatedElement = new Map<string, IRelationship[]>();
+  for (const r of dependsOnRelationships) {
+    const existing = dependsOnRelationshipsByRelatedElement.get(r.relatedSpdxElement);
+    if (existing) {
+      existing.push(r);
+    } else {
+      dependsOnRelationshipsByRelatedElement.set(r.relatedSpdxElement, [r]);
+    }
+  }
+
   // Walk the dependency tree via all "DependsOn" relationships with the package to discover all possible package dependency paths
-  const ancestorDependencyReleationships = dependsOnRelationships
-    .filter((r: IRelationship) => r.relatedSpdxElement === packageId)
-    .distinctBy((r: IRelationship) => r.spdxElementId + r.relatedSpdxElement);
+  const ancestorDependencyReleationships = (dependsOnRelationshipsByRelatedElement.get(packageId) || []).distinctBy(
+    (r: IRelationship) => r.spdxElementId + r.relatedSpdxElement,
+  );
   const ancestorDependencyPaths = ancestorDependencyReleationships.flatMap((relationship) =>
-    getPackageAncestorPathsRecursive(dependsOnRelationships, packages, relationship.spdxElementId, [currentPackage], 1),
+    getPackageAncestorPathsRecursive(
+      dependsOnRelationshipsByRelatedElement,
+      packagesById,
+      relationship.spdxElementId,
+      [currentPackage],
+      1,
+    ),
   );
 
   // Ensure there is only one ancestor dependency path per top-level package (prefer the longest path if multiple)
@@ -86,13 +106,13 @@ export function getPackageAncestorDependencyPaths(document: IDocument, packageId
 }
 
 function getPackageAncestorPathsRecursive(
-  relationships: IRelationship[],
-  packages: IPackage[],
+  dependsOnRelationshipsByRelatedElement: Map<string, IRelationship[]>,
+  packagesById: Map<string, IPackage>,
   packageId: string,
   pathSoFar: IPackage[],
   depth: number,
 ): IPackageDependencyPath[] {
-  const currentPackage = packages.find((p) => p.SPDXID === packageId);
+  const currentPackage = packagesById.get(packageId);
   if (!currentPackage) {
     return [{ dependencyPath: pathSoFar }];
   }
@@ -105,13 +125,19 @@ function getPackageAncestorPathsRecursive(
 
   const newPath = [currentPackage, ...pathSoFar].filter((p) => p !== undefined);
   const ancestorDependencyPaths: IPackageDependencyPath[] = [];
-  const ancestorDependencyReleationships = relationships
-    .filter((r: IRelationship) => r.relatedSpdxElement === packageId)
-    .distinctBy((r: IRelationship) => r.spdxElementId + r.relatedSpdxElement);
+  const ancestorDependencyReleationships = (dependsOnRelationshipsByRelatedElement.get(packageId) || []).distinctBy(
+    (r: IRelationship) => r.spdxElementId + r.relatedSpdxElement,
+  );
   if (ancestorDependencyReleationships.length > 0) {
     for (const relationship of ancestorDependencyReleationships) {
       ancestorDependencyPaths.push(
-        ...getPackageAncestorPathsRecursive(relationships, packages, relationship.spdxElementId, newPath, depth + 1),
+        ...getPackageAncestorPathsRecursive(
+          dependsOnRelationshipsByRelatedElement,
+          packagesById,
+          relationship.spdxElementId,
+          newPath,
+          depth + 1,
+        ),
       );
     }
   } else {

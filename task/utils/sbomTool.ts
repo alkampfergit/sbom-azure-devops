@@ -60,6 +60,20 @@ interface PostProcessManifestArgs {
   gitHubAccessToken?: string;
 }
 
+/**
+ * Run an async operation and log how long it took, regardless of outcome.
+ * @param label What to call this operation in the log
+ * @param fn The operation to run and time
+ */
+async function timedAsync<T>(label: string, fn: () => Promise<T>): Promise<T> {
+  const start = Date.now();
+  try {
+    return await fn();
+  } finally {
+    console.info(`${label} completed in ${((Date.now() - start) / 1000).toFixed(2)}s`);
+  }
+}
+
 export class SbomTool {
   private agentOperatingSystem: string;
   private agentArchitecture: string;
@@ -151,11 +165,12 @@ export class SbomTool {
 
       // Run sbom-tool
       section(`Running 'sbom-tool generate'`);
-      const sbomTool = tool(sbomToolPath).arg(sbomToolArguments);
-      const sbomToolResultCode = await sbomTool.execAsync({
-        failOnStdErr: false,
-        ignoreReturnCode: true,
-      });
+      const sbomToolResultCode = await timedAsync(`'sbom-tool generate'`, () =>
+        tool(sbomToolPath).arg(sbomToolArguments).execAsync({
+          failOnStdErr: false,
+          ignoreReturnCode: true,
+        }),
+      );
       if (sbomToolResultCode != 0) {
         throw new Error(`SBOM Tool failed with exit code ${sbomToolResultCode}`);
       }
@@ -207,33 +222,36 @@ export class SbomTool {
         throw new Error(`Import manifest file not found: '${args.importFilePath}'`);
       }
 
-      // Read and sanity-check the manifest being imported
-      const importedContent = await fs.readFile(args.importFilePath, 'utf8');
-      const importedDocument = JSON.parse(importedContent) as IDocument;
-      if (typeof importedDocument?.spdxVersion !== 'string' || !Array.isArray(importedDocument?.packages)) {
-        throw new Error(`File '${args.importFilePath}' does not look like a valid SPDX document`);
-      }
+      const spdxJsonPath = await timedAsync('Reading and copying import file', async () => {
+        // Read and sanity-check the manifest being imported
+        const importedContent = await fs.readFile(args.importFilePath, 'utf8');
+        const importedDocument = JSON.parse(importedContent) as IDocument;
+        if (typeof importedDocument?.spdxVersion !== 'string' || !Array.isArray(importedDocument?.packages)) {
+          throw new Error(`File '${args.importFilePath}' does not look like a valid SPDX document`);
+        }
 
-      // Copy it into the standard manifest output location, so it's found in the same place a
-      // `generate` run would have left it (e.g. by a later `PublishBuildArtifacts` step)
-      const manifestVersionMatch = /^SPDX-(2\.\d+)$/i.exec(importedDocument.spdxVersion.trim());
-      if (!manifestVersionMatch) {
-        throw new Error(
-          `File '${args.importFilePath}' has unsupported SPDX version '${importedDocument.spdxVersion}'. Expected SPDX-2.x`,
+        // Copy it into the standard manifest output location, so it's found in the same place a
+        // `generate` run would have left it (e.g. by a later `PublishBuildArtifacts` step)
+        const manifestVersionMatch = /^SPDX-(2\.\d+)$/i.exec(importedDocument.spdxVersion.trim());
+        if (!manifestVersionMatch) {
+          throw new Error(
+            `File '${args.importFilePath}' has unsupported SPDX version '${importedDocument.spdxVersion}'. Expected SPDX-2.x`,
+          );
+        }
+        const manifestVersion = manifestVersionMatch[1];
+        const manifestOutputPath = path.join(
+          args.manifestOutputPath || getVariable('Build.ArtifactStagingDirectory') || __dirname,
+          MANIFEST_DIR_NAME,
+          `${MANIFEST_FORMAT}_${manifestVersion}`,
         );
-      }
-      const manifestVersion = manifestVersionMatch[1];
-      const manifestOutputPath = path.join(
-        args.manifestOutputPath || getVariable('Build.ArtifactStagingDirectory') || __dirname,
-        MANIFEST_DIR_NAME,
-        `${MANIFEST_FORMAT}_${manifestVersion}`,
-      );
-      await fs.mkdir(manifestOutputPath, { recursive: true });
-      const spdxJsonPath = path.join(
-        manifestOutputPath,
-        `${args.manifestFileNamePrefix || ''}manifest.${MANIFEST_FORMAT}.json`,
-      );
-      await fs.writeFile(spdxJsonPath, importedContent);
+        await fs.mkdir(manifestOutputPath, { recursive: true });
+        const spdxJsonPath = path.join(
+          manifestOutputPath,
+          `${args.manifestFileNamePrefix || ''}manifest.${MANIFEST_FORMAT}.json`,
+        );
+        await fs.writeFile(spdxJsonPath, importedContent);
+        return spdxJsonPath;
+      });
 
       // From here, the pipeline is identical to a freshly generated manifest: enrich, attach, export
       await this.postProcessManifestAsync(spdxJsonPath, args);
@@ -249,7 +267,9 @@ export class SbomTool {
     // Add security advisories to the SPDX file, if configured
     if (args.fetchSecurityAdvisories && args.gitHubAccessToken) {
       section('Checking packages for security advisories');
-      await addSpdxPackageSecurityAdvisoryExternalRefsAsync(spdxJsonPath, args.gitHubAccessToken);
+      await timedAsync('Security advisory check', () =>
+        addSpdxPackageSecurityAdvisoryExternalRefsAsync(spdxJsonPath, args.gitHubAccessToken!),
+      );
     }
 
     // Attach the SPDX file to the build timeline so we can view it in the SBOM build result tab.
@@ -258,30 +278,34 @@ export class SbomTool {
 
     // Regenerate the SHA-256 hash of the SPDX file, in case it was modified
     section('Generating SHA-256 hash file');
-    await writeSha256HashFileAsync(spdxJsonPath);
+    await timedAsync('SHA-256 hash generation', () => writeSha256HashFileAsync(spdxJsonPath));
 
     // Generate a XLSX spreadsheet of the SPDX file, if configured
     if (args.enableManifestSpreadsheetGeneration && spdxJsonContent) {
       section(`Generating XLSX spreadsheet`);
-      const xlsx = await convertSpdxToXlsxAsync(JSON.parse(spdxJsonContent) as IDocument);
-      if (xlsx) {
-        const xlsxPath = path.format({ ...path.parse(spdxJsonPath), base: '', ext: '.xlsx' });
-        await fs.writeFile(xlsxPath, xlsx);
-        await writeSha256HashFileAsync(xlsxPath);
-      }
+      await timedAsync('XLSX spreadsheet generation', async () => {
+        const xlsx = await convertSpdxToXlsxAsync(JSON.parse(spdxJsonContent) as IDocument);
+        if (xlsx) {
+          const xlsxPath = path.format({ ...path.parse(spdxJsonPath), base: '', ext: '.xlsx' });
+          await fs.writeFile(xlsxPath, xlsx);
+          await writeSha256HashFileAsync(xlsxPath);
+        }
+      });
     }
 
     // Generate a SVG graph diagram of the SPDX file
     // TODO: Remove SVG graph generation once web browser SPDX to SVG generation is implemented
     if (args.enableManifestGraphGeneration && spdxJsonContent) {
       section(`Generating SVG graph diagram`);
-      const svg = await convertSpdxToSvgAsync(JSON.parse(spdxJsonContent) as IDocument);
-      if (svg) {
-        const svgPath = path.format({ ...path.parse(spdxJsonPath), base: '', ext: '.svg' });
-        await fs.writeFile(svgPath, svg);
-        await writeSha256HashFileAsync(svgPath);
-        addAttachment(`${MANIFEST_FORMAT}.svg`, path.basename(svgPath), svgPath);
-      }
+      await timedAsync('SVG graph diagram generation', async () => {
+        const svg = await convertSpdxToSvgAsync(JSON.parse(spdxJsonContent) as IDocument);
+        if (svg) {
+          const svgPath = path.format({ ...path.parse(spdxJsonPath), base: '', ext: '.svg' });
+          await fs.writeFile(svgPath, svg);
+          await writeSha256HashFileAsync(svgPath);
+          addAttachment(`${MANIFEST_FORMAT}.svg`, path.basename(svgPath), svgPath);
+        }
+      });
     }
   }
 
