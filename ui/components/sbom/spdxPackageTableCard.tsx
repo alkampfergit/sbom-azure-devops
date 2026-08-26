@@ -56,6 +56,7 @@ interface IPackageTableItem {
   license: string;
   supplier: string;
   vulnerabilityServerityWeighting: number;
+  totalVulnerabilities: number;
   securityAdvisories: ISecurityVulnerability[];
 }
 
@@ -114,6 +115,7 @@ export class SpdxPackageTableCard extends React.Component<Props, State> {
               (acc, cur) => acc + 1 * getSeverityByName(cur.advisory.severity).weight,
               0,
             ),
+            totalVulnerabilities: securityAdvisories.length,
             securityAdvisories: securityAdvisories,
           };
         }) || [];
@@ -225,6 +227,19 @@ export class SpdxPackageTableCard extends React.Component<Props, State> {
         },
         width: new ObservableValue(-10),
       },
+      {
+        id: 'totalVulnerabilities',
+        name: 'Total Vulnerabilities',
+        onSize: tableColumnResize,
+        readonly: true,
+        renderCell: (rowIndex, columnIndex, tableColumn, tableItem) =>
+          renderSimpleValueCell(rowIndex, columnIndex, tableColumn, tableItem.totalVulnerabilities.toString()),
+        sortProps: {
+          ariaLabelAscending: 'Sorted low to high',
+          ariaLabelDescending: 'Sorted high to low',
+        },
+        width: new ObservableValue(-8),
+      },
     ];
 
     const tableItems = new ObservableArray<IPackageTableItem | IReadonlyObservableValue<IPackageTableItem | undefined>>(
@@ -237,46 +252,49 @@ export class SpdxPackageTableCard extends React.Component<Props, State> {
         proposedSortOrder: SortOrder,
         event: React.KeyboardEvent<HTMLElement> | React.MouseEvent<HTMLElement>,
       ) => {
-        tableItems.splice(
-          0,
-          tableItems.length,
-          ...sortItems<IPackageTableItem>(
-            columnIndex,
-            proposedSortOrder,
-            [
-              // Sort on name
-              (item1: IPackageTableItem, item2: IPackageTableItem): number => {
-                return item1.name!.localeCompare(item2.name!);
-              },
-              null,
-              // Sort on package manager
-              (item1: IPackageTableItem, item2: IPackageTableItem): number => {
-                return item1.packageManagerName!.localeCompare(item2.packageManagerName!);
-              },
-              // Sort on type
-              (item1: IPackageTableItem, item2: IPackageTableItem): number => {
-                return item1.type!.localeCompare(item2.type!);
-              },
-              // Sort on number of chained packages
-              (item1: IPackageTableItem, item2: IPackageTableItem): number => {
-                return item1.ancestorDependencyPaths.length - item2.ancestorDependencyPaths.length;
-              },
-              // Sort on license
-              (item1: IPackageTableItem, item2: IPackageTableItem): number => {
-                return item1.license!.localeCompare(item2.license!);
-              },
-              // Sort on supplier
-              (item1: IPackageTableItem, item2: IPackageTableItem): number => {
-                return item1.supplier!.localeCompare(item2.supplier!);
-              },
-              // Sort on number of security advisories
-              (item1: IPackageTableItem, item2: IPackageTableItem): number => {
-                return item1.vulnerabilityServerityWeighting - item2.vulnerabilityServerityWeighting;
-              },
-            ],
-            tableColumns,
-            rawTableItems,
-          ),
+        // Assign via the `.value` setter, not `.splice(0, length, ...items)` -- spreading a large
+        // array as individual call arguments overflows the JS call stack (RangeError: Maximum
+        // call stack size exceeded) once there are tens of thousands of items.
+        tableItems.value = sortItems<IPackageTableItem>(
+          columnIndex,
+          proposedSortOrder,
+          [
+            // Sort on name
+            (item1: IPackageTableItem, item2: IPackageTableItem): number => {
+              return item1.name!.localeCompare(item2.name!);
+            },
+            null,
+            // Sort on package manager
+            (item1: IPackageTableItem, item2: IPackageTableItem): number => {
+              return item1.packageManagerName!.localeCompare(item2.packageManagerName!);
+            },
+            // Sort on type
+            (item1: IPackageTableItem, item2: IPackageTableItem): number => {
+              return item1.type!.localeCompare(item2.type!);
+            },
+            // Sort on number of chained packages
+            (item1: IPackageTableItem, item2: IPackageTableItem): number => {
+              return item1.ancestorDependencyPaths.length - item2.ancestorDependencyPaths.length;
+            },
+            // Sort on license
+            (item1: IPackageTableItem, item2: IPackageTableItem): number => {
+              return item1.license!.localeCompare(item2.license!);
+            },
+            // Sort on supplier
+            (item1: IPackageTableItem, item2: IPackageTableItem): number => {
+              return item1.supplier!.localeCompare(item2.supplier!);
+            },
+            // Sort on number of security advisories
+            (item1: IPackageTableItem, item2: IPackageTableItem): number => {
+              return item1.vulnerabilityServerityWeighting - item2.vulnerabilityServerityWeighting;
+            },
+            // Sort on total number of vulnerabilities
+            (item1: IPackageTableItem, item2: IPackageTableItem): number => {
+              return item1.totalVulnerabilities - item2.totalVulnerabilities;
+            },
+          ],
+          tableColumns,
+          rawTableItems,
         );
       },
     );
@@ -295,7 +313,7 @@ export class SpdxPackageTableCard extends React.Component<Props, State> {
             v.advisory.identifiers?.some((i) => i.value.toLowerCase().includes(keyword.toLowerCase())),
           ),
       );
-      tableItems.splice(0, tableItems.length, ...filteredItems);
+      tableItems.value = filteredItems;
     };
 
     if (props.filter) {

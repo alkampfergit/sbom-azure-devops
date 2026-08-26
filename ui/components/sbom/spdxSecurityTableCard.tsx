@@ -219,44 +219,43 @@ export class SpdxSecurityTableCard extends React.Component<Props, State> {
         proposedSortOrder: SortOrder,
         event: React.KeyboardEvent<HTMLElement> | React.MouseEvent<HTMLElement>,
       ) => {
-        tableItems.splice(
-          0,
-          tableItems.length,
-          ...sortItems<ISecurityAdvisoryTableItem>(
-            columnIndex,
-            proposedSortOrder,
-            [
-              // Sort on id
-              (item1: ISecurityAdvisoryTableItem, item2: ISecurityAdvisoryTableItem): number => {
-                return item1.ghsaId!.localeCompare(item2.ghsaId!);
-              },
-              // Sort on severity
-              (item1: ISecurityAdvisoryTableItem, item2: ISecurityAdvisoryTableItem): number => {
-                return item1.severity.weight - item2.severity.weight;
-              },
-              // Sort on package
-              (item1: ISecurityAdvisoryTableItem, item2: ISecurityAdvisoryTableItem): number => {
-                if (!item1.package || !item2.package) return 0;
-                return item1.package!.name!.localeCompare(item2.package!.name!);
-              },
-              null,
-              null,
-              // Sort on cvss
-              (item1: ISecurityAdvisoryTableItem, item2: ISecurityAdvisoryTableItem): number => {
-                return item1.cvssScore - item2.cvssScore;
-              },
-              // Sort on epss
-              (item1: ISecurityAdvisoryTableItem, item2: ISecurityAdvisoryTableItem): number => {
-                return item1.epssPercentage - item2.epssPercentage;
-              },
-              // Sort on cwes
-              (item1: ISecurityAdvisoryTableItem, item2: ISecurityAdvisoryTableItem): number => {
-                return item1.cwes.length - item2.cwes.length;
-              },
-            ],
-            tableColumns,
-            rawTableItems,
-          ),
+        // Assign via the `.value` setter, not `.splice(0, length, ...items)` -- spreading a large
+        // array as individual call arguments overflows the JS call stack (RangeError: Maximum
+        // call stack size exceeded) once there are tens of thousands of items.
+        tableItems.value = sortItems<ISecurityAdvisoryTableItem>(
+          columnIndex,
+          proposedSortOrder,
+          [
+            // Sort on id
+            (item1: ISecurityAdvisoryTableItem, item2: ISecurityAdvisoryTableItem): number => {
+              return item1.ghsaId!.localeCompare(item2.ghsaId!);
+            },
+            // Sort on severity
+            (item1: ISecurityAdvisoryTableItem, item2: ISecurityAdvisoryTableItem): number => {
+              return item1.severity.weight - item2.severity.weight;
+            },
+            // Sort on package
+            (item1: ISecurityAdvisoryTableItem, item2: ISecurityAdvisoryTableItem): number => {
+              if (!item1.package || !item2.package) return 0;
+              return item1.package!.name!.localeCompare(item2.package!.name!);
+            },
+            null,
+            null,
+            // Sort on cvss
+            (item1: ISecurityAdvisoryTableItem, item2: ISecurityAdvisoryTableItem): number => {
+              return item1.cvssScore - item2.cvssScore;
+            },
+            // Sort on epss
+            (item1: ISecurityAdvisoryTableItem, item2: ISecurityAdvisoryTableItem): number => {
+              return item1.epssPercentage - item2.epssPercentage;
+            },
+            // Sort on cwes
+            (item1: ISecurityAdvisoryTableItem, item2: ISecurityAdvisoryTableItem): number => {
+              return item1.cwes.length - item2.cwes.length;
+            },
+          ],
+          tableColumns,
+          rawTableItems,
         );
       },
     );
@@ -272,7 +271,7 @@ export class SpdxSecurityTableCard extends React.Component<Props, State> {
           item.severity?.name?.toLowerCase()?.includes(keyword.toLowerCase()) ||
           item.cwes?.some((cwe) => cwe.id.toLowerCase().includes(keyword.toLowerCase())),
       );
-      tableItems.splice(0, tableItems.length, ...filteredItems);
+      tableItems.value = filteredItems;
     };
 
     if (props.filter) {

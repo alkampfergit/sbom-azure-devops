@@ -78,12 +78,33 @@ release/architecture combination manually on the agent to confirm.
   `task/utils/azurePipelines/accessTokens.ts` for how the token is resolved; a misconfigured
   service connection scheme (anything other than `PersonalAccessToken`/`OAuth`/`Token`) throws.
   Only Advisory Database read access is needed on the token (public GHSA data), no repo scopes.
+- **`InvalidEndpointAuthScheme` / the connection uses `InstallationToken` auth (a GitHub App
+  installation).** `getGithubAccessToken()` (`task/utils/azurePipelines/accessTokens.ts`) only knows
+  how to extract a token from `PersonalAccessToken`/`OAuth`/`Token` endpoints — a service connection
+  backed by a GitHub App installation token isn't supported and throws this error. There's no code
+  fix short of adding installation-token support to that resolver; in the meantime, either create a
+  separate PAT/OAuth-based `gitHubConnection` just for this task, or switch to `vulnerabilitiesSource`
+  (see [Task Reference § `vulnerabilitiesSource` format](Task-Reference.md#vulnerabilitiessource-format))
+  and supply vulnerability data from your own scan instead of fetching it from GHSA.
 - A whole ecosystem's packages silently get **no** advisory lookup if their PURL type isn't mapped
   in `getGhsaEcosystemFromPackageUrl` — see
   [SPDX and Data Model § GitHub Advisory enrichment](SPDX-and-Data-Model.md#github-advisory-ghsa-enrichment).
 - Partial GraphQL batch failures are logged as a `console.warn` and skipped rather than failing the
   task (`GitHubGraphClient.batchGraphQueryAsync`) — check the pipeline log for
   `Request batch [...] failed` if advisory data looks incomplete rather than absent.
+
+**`vulnerabilitiesSource` doesn't seem to apply any vulnerabilities.**
+
+- Check the pipeline log for `Applied N vulnerabilities ... ; M did not match any package by name` —
+  a non-zero `M` usually means `packageName` in your JSON file doesn't exactly match the SBOM
+  package's `name` field (matching is case-insensitive but otherwise exact; no purl/ecosystem
+  matching). Compare against the actual SBOM JSON's `packages[].name` values.
+- If the input resolves to zero files, the task logs a pipeline warning
+  (`No files found matching \`vulnerabilitiesSource\`: '...'`) rather than failing — check the glob
+  pattern resolves from the agent's working directory as expected.
+- `severity` must be exactly one of `LOW`/`MODERATE`/`HIGH`/`CRITICAL` — any other value still
+  writes through (it isn't validated), but will render oddly in the report tab's severity-weighted
+  sort/badges.
 
 ## UI
 

@@ -17,9 +17,10 @@ import { ZeroData } from 'azure-devops-ui/ZeroData';
 
 import { ExpandableList } from '../expandableList';
 
-import { IDocument } from '../../../shared/spdx/models/2.3/document';
 import { getExternalRefPackageManagerUrl } from '../../../shared/spdx/models/2.3/externalRef';
-import { getPackageSupplierOrganization } from '../../../shared/spdx/models/2.3/package';
+import { getPackageSupplierOrganization, IPackage } from '../../../shared/spdx/models/2.3/package';
+
+const UNASSIGNED_SUPPLIER_ID = '__unassigned';
 
 interface ISupplierTableItem {
   id: string;
@@ -32,7 +33,7 @@ interface ISupplierTableItem {
 }
 
 interface Props {
-  document: IDocument;
+  packages: IPackage[];
   suppliers: string[];
   filter: IFilter;
 }
@@ -59,25 +60,38 @@ export class SpdxSupplierTableCard extends React.Component<Props, State> {
   }
 
   static getDerivedStateFromProps(props: Props): State {
+    const packages = props.packages || [];
+    const toPackageRef = (p: IPackage) => ({
+      name: p.name || '',
+      version: p.versionInfo || '',
+      url: getExternalRefPackageManagerUrl(p.externalRefs),
+    });
+
     const rawTableItems: ISupplierTableItem[] =
       props.suppliers
         ?.orderBy((supplier: string) => supplier)
         ?.map((supplier: string) => {
-          const packagesFromSupplier = props.document.packages
-            ?.filter((p) => getPackageSupplierOrganization(p) == supplier)
-            ?.map((p) => {
-              return {
-                name: p.name || '',
-                version: p.versionInfo || '',
-                url: getExternalRefPackageManagerUrl(p.externalRefs),
-              };
-            });
+          const packagesFromSupplier = packages.filter((p) => getPackageSupplierOrganization(p) == supplier);
           return {
             id: supplier || '',
             name: supplier || '',
-            packages: packagesFromSupplier,
+            packages: packagesFromSupplier.map(toPackageRef),
           };
         }) || [];
+
+    // Packages with no declared supplier (SPDX `NOASSERTION`, or the field missing entirely) are
+    // excluded from `props.suppliers` upstream (see documentPage.tsx) since it's not a real
+    // supplier name -- but silently dropping them here made the table look "incomplete": the sum
+    // of every row's package count didn't match the total package count, with no row explaining
+    // why. Surface them as an explicit row instead, so every package is accounted for somewhere.
+    const unassignedPackages = packages.filter((p) => !getPackageSupplierOrganization(p));
+    if (unassignedPackages.length) {
+      rawTableItems.push({
+        id: UNASSIGNED_SUPPLIER_ID,
+        name: 'Unassigned',
+        packages: unassignedPackages.map(toPackageRef),
+      });
+    }
 
     const tableColumnResize = function onSize(
       event: MouseEvent | KeyboardEvent,
@@ -134,26 +148,25 @@ export class SpdxSupplierTableCard extends React.Component<Props, State> {
         proposedSortOrder: SortOrder,
         event: React.KeyboardEvent<HTMLElement> | React.MouseEvent<HTMLElement>,
       ) => {
-        tableItems.splice(
-          0,
-          tableItems.length,
-          ...sortItems<ISupplierTableItem>(
-            columnIndex,
-            proposedSortOrder,
-            [
-              // Sort on name
-              (item1: ISupplierTableItem, item2: ISupplierTableItem): number => {
-                return item1.name!.localeCompare(item2.name!);
-              },
-              // Sort on package count
-              (item1: ISupplierTableItem, item2: ISupplierTableItem): number => {
-                return item1.packages.length - item2.packages.length;
-              },
-              null,
-            ],
-            tableColumns,
-            rawTableItems,
-          ),
+        // Assign via the `.value` setter, not `.splice(0, length, ...items)` -- spreading a large
+        // array as individual call arguments overflows the JS call stack (RangeError: Maximum
+        // call stack size exceeded) once there are tens of thousands of items.
+        tableItems.value = sortItems<ISupplierTableItem>(
+          columnIndex,
+          proposedSortOrder,
+          [
+            // Sort on name
+            (item1: ISupplierTableItem, item2: ISupplierTableItem): number => {
+              return item1.name!.localeCompare(item2.name!);
+            },
+            // Sort on package count
+            (item1: ISupplierTableItem, item2: ISupplierTableItem): number => {
+              return item1.packages.length - item2.packages.length;
+            },
+            null,
+          ],
+          tableColumns,
+          rawTableItems,
         );
       },
     );
@@ -165,7 +178,7 @@ export class SpdxSupplierTableCard extends React.Component<Props, State> {
           item.name?.toLowerCase()?.includes(keyword.toLowerCase()) ||
           item.packages?.some((p) => p.name.toLowerCase().includes(keyword.toLowerCase())),
       );
-      tableItems.splice(0, tableItems.length, ...filteredItems);
+      tableItems.value = filteredItems;
     };
 
     if (props.filter) {
@@ -177,7 +190,7 @@ export class SpdxSupplierTableCard extends React.Component<Props, State> {
   }
 
   public componentDidUpdate(prevProps: Readonly<Props>): void {
-    if (prevProps.document !== this.props.document || prevProps.suppliers !== this.props.suppliers) {
+    if (prevProps.packages !== this.props.packages || prevProps.suppliers !== this.props.suppliers) {
       this.setState(SpdxSupplierTableCard.getDerivedStateFromProps(this.props));
     }
   }

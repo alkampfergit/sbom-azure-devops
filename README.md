@@ -83,6 +83,48 @@ pipeline run) and just want to view/enrich it with this extension's "SBOM" repor
     gitHubConnection: 'GitHub Advisory Database Connection'
 ```
 
+### Supplying vulnerability data from another scanner
+
+`fetchSecurityAdvisories` only supports GitHub connections authenticated via OAuth or a personal
+access token. If your GitHub connection uses another auth scheme (e.g. a GitHub App installation
+token), or your vulnerability data comes from another scanner entirely (Trivy, `npm audit`,
+`dotnet list package --vulnerable`, etc), use `vulnerabilitiesSource` instead (or alongside)
+`fetchSecurityAdvisories` — it points to one or more local JSON files describing vulnerabilities to
+attach to the SBOM:
+
+```yaml
+- task: sbom-tool@1
+  displayName: 'Import SBOM manifest'
+  inputs:
+    command: 'import'
+    importManifestFilePath: '$(Pipeline.Workspace)/**/*.spdx.json'
+    vulnerabilitiesSource: '$(Pipeline.Workspace)/**/*.vulnerabilities.json'
+```
+
+Each referenced file must contain a JSON array of vulnerabilities in the following shape:
+
+```jsonc
+[
+  {
+    "packageName": "left-pad", // Required; matched case-insensitively against SBOM package names
+    "packageVersion": "1.3.0", // Optional; if omitted, matches the package regardless of version
+    "id": "GHSA-xxxx-xxxx-xxxx", // Required; GHSA id, CVE id, or any other identifier from your scanner
+    "cveId": "CVE-2021-24112", // Optional
+    "severity": "CRITICAL", // Required; one of LOW, MODERATE, HIGH, CRITICAL
+    "summary": "One-line title", // Optional
+    "description": "Longer free-text description", // Optional
+    "url": "https://github.com/advisories/GHSA-xxxx-xxxx-xxxx", // Optional; a link is derived from id/cveId if omitted
+    "vulnerableVersionRange": "< 5.0.2", // Optional
+    "fixedVersion": "5.0.2", // Optional
+    "cvssScore": 9.8, // Optional
+    "publishedAt": "2021-03-01T00:00:00Z", // Optional
+  },
+]
+```
+
+Matched packages are enriched with the same security advisory external references that
+`fetchSecurityAdvisories` would have added, so they appear identically in the "SBOM" report tab.
+
 ## Advanced
 
 - [`rhyskoedijk/sbom-azure-devops` GitHub project](https://github.com/rhyskoedijk/sbom-azure-devops)

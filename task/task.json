@@ -157,6 +157,14 @@
       "visibleRule": "fetchSecurityAdvisories=true"
     },
     {
+      "name": "vulnerabilitiesSource",
+      "type": "multiLine",
+      "label": "Vulnerabilities Source File Paths",
+      "defaultValue": "",
+      "required": false,
+      "helpMarkDown": "The list of vulnerability report file paths (one per line) to apply to the SBOM; [Glob patterns](https://globster.xyz/) are supported. Each file must contain a JSON array of vulnerabilities in the format described in the [wiki](https://github.com/rhyskoedijk/sbom-azure-devops/wiki/Task-Reference#vulnerabilitiessource-format). Use this as an alternative to `fetchSecurityAdvisories` when vulnerability data comes from another scanner, or the GitHub connection can't be used to fetch advisories. Can be combined with `fetchSecurityAdvisories`; vulnerabilities from both sources are applied."
+    },
+    {
       "groupName": "package",
       "name": "packageName",
       "type": "string",

@@ -125,30 +125,29 @@ export class SpdxFileTableCard extends React.Component<Props, State> {
         proposedSortOrder: SortOrder,
         event: React.KeyboardEvent<HTMLElement> | React.MouseEvent<HTMLElement>,
       ) => {
-        tableItems.splice(
-          0,
-          tableItems.length,
-          ...sortItems<IFileTableItem>(
-            columnIndex,
-            proposedSortOrder,
-            [
-              // Sort on package name
-              ...(hasMultipleRootPackages
-                ? [
-                    (item1: IFileTableItem, item2: IFileTableItem): number => {
-                      return (item1.package + item1.name).localeCompare(item2.package + item2.name);
-                    },
-                  ]
-                : []),
-              // Sort on file name
-              (item1: IFileTableItem, item2: IFileTableItem): number => {
-                return item1.name!.localeCompare(item2.name!);
-              },
-              null,
-            ],
-            tableColumns,
-            rawTableItems,
-          ),
+        // Assign via the `.value` setter, not `.splice(0, length, ...items)` -- spreading a large
+        // array as individual call arguments overflows the JS call stack (RangeError: Maximum
+        // call stack size exceeded) once there are tens of thousands of items.
+        tableItems.value = sortItems<IFileTableItem>(
+          columnIndex,
+          proposedSortOrder,
+          [
+            // Sort on package name
+            ...(hasMultipleRootPackages
+              ? [
+                  (item1: IFileTableItem, item2: IFileTableItem): number => {
+                    return (item1.package + item1.name).localeCompare(item2.package + item2.name);
+                  },
+                ]
+              : []),
+            // Sort on file name
+            (item1: IFileTableItem, item2: IFileTableItem): number => {
+              return item1.name!.localeCompare(item2.name!);
+            },
+            null,
+          ],
+          tableColumns,
+          rawTableItems,
         );
       },
     );
@@ -160,7 +159,7 @@ export class SpdxFileTableCard extends React.Component<Props, State> {
           item.name?.toLowerCase()?.includes(keyword.toLowerCase()) ||
           item.checksum?.toLowerCase()?.includes(keyword.toLowerCase()),
       );
-      tableItems.splice(0, tableItems.length, ...filteredItems);
+      tableItems.value = filteredItems;
     };
 
     if (props.filter) {

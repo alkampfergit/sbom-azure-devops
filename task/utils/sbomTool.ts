@@ -13,6 +13,7 @@ import { IDocument } from '../../shared/spdx/models/2.3/document';
 
 import { convertSpdxToXlsxAsync } from '../../shared/spdx/convertSpdxToXlsx';
 import { addSpdxPackageSecurityAdvisoryExternalRefsAsync } from './spdx/addSpdxPackageSecurityAdvisories';
+import { addSpdxPackageVulnerabilitiesFromFileAsync } from './spdx/addSpdxPackageVulnerabilitiesFromFile';
 import { convertSpdxToSvgAsync } from './spdx/convertSpdxToSvg';
 
 const GITHUB_RELEASES_URL = 'https://github.com/microsoft/sbom-tool/releases';
@@ -34,6 +35,7 @@ export interface SbomToolGenerateArgs {
   licenseInformationTimeoutInSeconds?: string;
   fetchSecurityAdvisories?: boolean;
   gitHubAccessToken?: string;
+  vulnerabilitiesSourceFilePaths?: string[];
   packageName: string;
   packageVersion: string;
   packageSupplier: string;
@@ -51,6 +53,7 @@ export interface SbomToolImportArgs {
   enableManifestGraphGeneration?: boolean;
   fetchSecurityAdvisories?: boolean;
   gitHubAccessToken?: string;
+  vulnerabilitiesSourceFilePaths?: string[];
 }
 
 interface PostProcessManifestArgs {
@@ -58,6 +61,7 @@ interface PostProcessManifestArgs {
   enableManifestGraphGeneration?: boolean;
   fetchSecurityAdvisories?: boolean;
   gitHubAccessToken?: string;
+  vulnerabilitiesSourceFilePaths?: string[];
 }
 
 /**
@@ -269,6 +273,16 @@ export class SbomTool {
       section('Checking packages for security advisories');
       await timedAsync('Security advisory check', () =>
         addSpdxPackageSecurityAdvisoryExternalRefsAsync(spdxJsonPath, args.gitHubAccessToken!),
+      );
+    }
+
+    // Add vulnerabilities from local file(s) to the SPDX file, if configured; this is an alternative
+    // to `fetchSecurityAdvisories` for cases where the GHSA fetch isn't usable (e.g. no supported
+    // GitHub connection auth scheme) or vulnerability data comes from another scanner entirely.
+    if (args.vulnerabilitiesSourceFilePaths?.length) {
+      section('Applying vulnerabilities from vulnerabilities source file(s)');
+      await timedAsync('Vulnerabilities source file processing', () =>
+        addSpdxPackageVulnerabilitiesFromFileAsync(spdxJsonPath, args.vulnerabilitiesSourceFilePaths!),
       );
     }
 

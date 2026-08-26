@@ -191,7 +191,7 @@ export class SbomDocumentPage extends React.Component<Props, State> {
                   return (
                     <div className="page-content flex-grow">
                       <SpdxSupplierTableCard
-                        document={this.props.artifact.spdxDocument}
+                        packages={this.state.packages}
                         suppliers={this.state.suppliers}
                         filter={this.filter}
                       />

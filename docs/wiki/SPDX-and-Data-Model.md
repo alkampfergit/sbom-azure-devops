@@ -87,6 +87,28 @@ you extend it.
   Extend the `switch` there if `sbom-tool`/Component Detector starts reporting a package manager
   this list doesn't cover yet.
 
+## `vulnerabilitiesSource` (file-based vulnerability enrichment)
+
+An alternative/supplement to GHSA fetching, for when the GitHub connection can't be used (e.g.
+`InstallationToken` auth — see [Troubleshooting](Troubleshooting.md)) or vulnerability data comes
+from another scanner. Implemented in
+`task/utils/spdx/addSpdxPackageVulnerabilitiesFromFile.ts` (`addSpdxPackageVulnerabilitiesFromFileAsync`):
+
+- Reads one or more JSON files (paths resolved from the `vulnerabilitiesSource` task input), each a
+  flat array of `IExternalVulnerability` (`shared/ghsa/models/externalVulnerability.ts`) — a
+  hand-generatable shape, unlike `ISecurityVulnerability` which mirrors GHSA's own GraphQL response.
+- Matches each entry to SBOM packages by `name` (case-insensitive) and, if `packageVersion` is set,
+  `versionInfo` — there's no purl/ecosystem grouping like the GHSA path, since there's no external
+  API call to batch.
+- Converts each match to an `ISecurityVulnerability` (deriving a `permalink` from `cveId`/a
+  `GHSA-*` `id` when no `url` is given, so the entry still dedupes correctly by permalink in
+  `documentPage.tsx`) and calls the **same** `addSecurityAdvisoryExternalRefsToPackage` helper the
+  GHSA path uses — so both paths write identical external-ref shapes and the UI can't tell them
+  apart. See [Task Reference § `vulnerabilitiesSource` format](Task-Reference.md#vulnerabilitiessource-format)
+  for the full field list.
+- Also bumps `sbom.spdxVersion` to 2.3 when it applies at least one vulnerability, same as the GHSA
+  path.
+
 ## XLSX and SVG generation
 
 - **XLSX** (`shared/spdx/convertSpdxToXlsx.ts`, `convertSpdxToXlsxAsync`) — builds a workbook via
@@ -97,11 +119,14 @@ you extend it.
   Notable implementation details:
   - Requires a `globalThis.crypto` shim (`node:crypto`'s `webcrypto`) applied **before** importing
     vizdom, because vizdom's Rust `getrandom` dependency doesn't support Node ESM natively.
-  - Builds one vertex for the document root, one per package, one per file (with directory vertices
-    inserted recursively so files nest under their folder structure), and one per external
-    reference that's a security advisory (colored by severity: critical/high/moderate/low, shaped as
-    a diamond, clickable via the advisory permalink) — `PackageManager`-category external refs are
-    skipped entirely (`continue` in the switch).
+  - Builds one vertex for the document root, one per package, and one per external reference that's
+    a security advisory (colored by severity: critical/high/moderate/low, shaped as a diamond,
+    clickable via the advisory permalink) — `PackageManager`-category external refs are skipped
+    entirely (`continue` in the switch). **Individual files are deliberately excluded** from the
+    graph: on a real-world manifest, files vastly outnumber packages (e.g. 130k files vs. 2.2k
+    packages) and graphing them made the SVG both slow to generate and unreadable once rendered.
+    Package-to-package (and package-to-advisory) edges, built directly from `spdx.relationships`,
+    are still fully represented.
   - There's a `TODO` in the code to eventually move this rendering into the browser instead of the
     agent — today the "Relationship View" tab in the UI just displays this pre-rendered SVG with
     pan/zoom (`react-zoom-pan-pinch`), it does not lay out the graph itself.

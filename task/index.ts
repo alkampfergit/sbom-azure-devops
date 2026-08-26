@@ -9,6 +9,7 @@ import {
   getVariable,
   setResult,
   TaskResult,
+  warning,
 } from 'azure-pipelines-task-lib/task';
 
 import { getGithubAccessToken } from './utils/azurePipelines/accessTokens';
@@ -21,6 +22,13 @@ async function run() {
   try {
     const sbomTool = new SbomTool(getInput('version', false));
     const sbomCommand = getInput('command', true);
+    const vulnerabilitiesSourceInput = getInput('vulnerabilitiesSource', false);
+    const vulnerabilitiesSourceFilePaths = vulnerabilitiesSourceInput
+      ? resolvePathGlobs(vulnerabilitiesSourceInput)
+      : undefined;
+    if (vulnerabilitiesSourceInput && vulnerabilitiesSourceFilePaths?.length === 0) {
+      warning(`No files found matching \`vulnerabilitiesSource\`: '${vulnerabilitiesSourceInput}'`);
+    }
     switch (sbomCommand) {
       // Generate SBOM manifest(s)
       case 'generate':
@@ -52,6 +60,7 @@ async function run() {
               licenseInformationTimeoutInSeconds: getInput('licenseInformationTimeoutInSeconds', false),
               fetchSecurityAdvisories: getBoolInput('fetchSecurityAdvisories', false),
               gitHubAccessToken: getGithubAccessToken(),
+              vulnerabilitiesSourceFilePaths,
               packageName:
                 (packageSourcePaths.length == 1
                   ? getInput('packageName', false) || getVariable('Build.Repository.Name')
@@ -94,6 +103,7 @@ async function run() {
               enableManifestGraphGeneration: getBoolInput('enableManifestGraphGeneration', false),
               fetchSecurityAdvisories: getBoolInput('fetchSecurityAdvisories', false),
               gitHubAccessToken: getGithubAccessToken(),
+              vulnerabilitiesSourceFilePaths,
             });
           } catch (e) {
             lastError = e;
