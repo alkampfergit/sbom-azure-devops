@@ -79,7 +79,12 @@ export function getExternalRefPackageManagerName(externalRefs: IExternalRef[]): 
     case ExternalRefPackageManagerType.Bower:
       return 'Bower';
     case ExternalRefPackageManagerType.PackageUrl:
-      return PackageURL.fromString(packageManager.referenceLocator)?.type?.toPascalCase();
+      try {
+        return PackageURL.fromString(packageManager.referenceLocator)?.type?.toPascalCase();
+      } catch (error) {
+        console.warn(`Unable to parse package URL '${packageManager.referenceLocator}'. ${error}`);
+        return undefined;
+      }
     default:
       return undefined;
   }
@@ -101,7 +106,13 @@ export function getExternalRefPackageManagerUrl(externalRefs: IExternalRef[]): s
       const yarnPkg = packageManager.referenceLocator.split('#');
       return `https://yarnpkg.com/package?name=${yarnPkg[0]}&version=${yarnPkg[1]}`;
     case ExternalRefPackageManagerType.PackageUrl:
-      const purl = PackageURL.fromString(packageManager.referenceLocator);
+      let purl: PackageURL | undefined;
+      try {
+        purl = PackageURL.fromString(packageManager.referenceLocator);
+      } catch (error) {
+        console.warn(`Unable to parse package URL '${packageManager.referenceLocator}'. ${error}`);
+        return undefined;
+      }
       if (!purl) return undefined;
       // TODO: Add all supported types from https://github.com/package-url/purl-spec/blob/master/PURL-TYPES.rst
       switch (purl.type) {
