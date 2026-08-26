@@ -2,7 +2,10 @@ import * as React from 'react';
 
 import { Button } from 'azure-devops-ui/Button';
 import { Card } from 'azure-devops-ui/Card';
+import { Checkbox } from 'azure-devops-ui/Checkbox';
 import { IReadonlyObservableValue, ObservableArray, ObservableValue } from 'azure-devops-ui/Core/Observable';
+import { DropdownFilterBarItem } from 'azure-devops-ui/Dropdown';
+import { FilterBar } from 'azure-devops-ui/FilterBar';
 import { Icon, IconSize } from 'azure-devops-ui/Icon';
 import { Link } from 'azure-devops-ui/Link';
 import { Observer } from 'azure-devops-ui/Observer';
@@ -15,7 +18,8 @@ import {
   Table,
   TableCell,
 } from 'azure-devops-ui/Table';
-import { FILTER_CHANGE_EVENT, IFilter } from 'azure-devops-ui/Utilities/Filter';
+import { DropdownMultiSelection } from 'azure-devops-ui/Utilities/DropdownSelection';
+import { Filter, FILTER_CHANGE_EVENT, IFilter } from 'azure-devops-ui/Utilities/Filter';
 import { ZeroData } from 'azure-devops-ui/ZeroData';
 
 import { ExpandableList } from '../expandableList';
@@ -23,7 +27,7 @@ import { PackageAncestorPathsDialog } from './packageAncestorPathsDialog';
 import { VulnerabilitiesSummaryBadge } from './vulnerabilitiesSummaryBadge';
 
 import { ISecurityVulnerability } from '../../../shared/ghsa/models/securityVulnerability';
-import { getSeverityByName } from '../../../shared/models/severity';
+import { getSeverityByName, ISeverity, SEVERITIES } from '../../../shared/models/severity';
 import {
   getPackageAncestorDependencyPaths,
   getPackageLevelName,
@@ -43,6 +47,13 @@ import {
   IPackage,
 } from '../../../shared/spdx/models/2.3/package';
 import { parseSpdxLegacySecurityAdvisories } from '../../../shared/spdx/parseSpdxLegacySecurityAdvisories';
+
+interface IPackageFilterCriteria {
+  keyword: string;
+  packageManagers: string[];
+  severities: string[];
+  vulnerableOnly: boolean;
+}
 
 interface IPackageTableItem {
   id: string;
@@ -70,21 +81,35 @@ interface State {
   tableColumns: ITableColumn<IPackageTableItem>[] | undefined;
   tableItems: ObservableArray<IPackageTableItem | IReadonlyObservableValue<IPackageTableItem | undefined>>;
   tableSorting: ColumnSorting<IPackageTableItem> | undefined;
-  filterTableItems?: (keywords: string) => void;
+  filterTableItems?: (criteria: IPackageFilterCriteria) => void;
+  packageManagerOptions: string[];
+  severityOptions: string[];
 }
 
 export class SpdxPackageTableCard extends React.Component<Props, State> {
+  private vulnerabilityFilter = new Filter();
+  private packageManagerSelection = new DropdownMultiSelection();
+  private severitySelection = new DropdownMultiSelection();
+  private showVulnerableOnly = new ObservableValue<boolean>(false);
+
   constructor(props: Props) {
     super(props);
-    this.state = {
-      tableColumns: undefined,
-      tableItems: new ObservableArray<IPackageTableItem | IReadonlyObservableValue<IPackageTableItem | undefined>>(),
-      tableSorting: undefined,
-    };
+    this.state = SpdxPackageTableCard.getDerivedStateFromProps(props);
     this.props.filter?.subscribe(() => {
-      const keyword = this.props.filter.getFilterItemValue('keyword') as string;
-      this.state.filterTableItems?.(keyword);
+      this.state.filterTableItems?.(this.getFilterCriteria());
     }, FILTER_CHANGE_EVENT);
+    this.vulnerabilityFilter.subscribe(() => {
+      this.state.filterTableItems?.(this.getFilterCriteria());
+    }, FILTER_CHANGE_EVENT);
+  }
+
+  private getFilterCriteria(): IPackageFilterCriteria {
+    return {
+      keyword: (this.props.filter?.getFilterItemValue('keyword') as string) || '',
+      packageManagers: this.vulnerabilityFilter.getFilterItemValue<string[]>('packageManager') || [],
+      severities: this.vulnerabilityFilter.getFilterItemValue<string[]>('severity') || [],
+      vulnerableOnly: this.showVulnerableOnly.value,
+    };
   }
 
   static getDerivedStateFromProps(props: Props): State {
@@ -299,9 +324,19 @@ export class SpdxPackageTableCard extends React.Component<Props, State> {
       },
     );
 
-    const filterTableItems = (keyword: string) => {
-      const filteredItems = rawTableItems.filter(
-        (item) =>
+    const packageManagerOptions = rawTableItems
+      .map((item) => item.packageManagerName)
+      .filter((pm): pm is string => !!pm)
+      .distinct()
+      .orderBy((pm: string) => pm);
+    const severityOptions = SEVERITIES.filter((s: ISeverity) => s.id > 0)
+      .orderBy((s: ISeverity) => s.weight, false)
+      .map((s: ISeverity) => s.name);
+
+    const filterTableItems = (criteria: IPackageFilterCriteria) => {
+      const keyword = criteria.keyword;
+      const filteredItems = rawTableItems.filter((item) => {
+        const matchesKeyword =
           !keyword ||
           item.name?.toLowerCase()?.includes(keyword.toLowerCase()) ||
           item.version?.toLowerCase()?.includes(keyword.toLowerCase()) ||
@@ -311,62 +346,115 @@ export class SpdxPackageTableCard extends React.Component<Props, State> {
           item.supplier?.toLowerCase()?.includes(keyword.toLowerCase()) ||
           item.securityAdvisories?.some((v) =>
             v.advisory.identifiers?.some((i) => i.value.toLowerCase().includes(keyword.toLowerCase())),
-          ),
-      );
+          );
+        if (!matchesKeyword) {
+          return false;
+        }
+        if (criteria.packageManagers.length && !criteria.packageManagers.includes(item.packageManagerName)) {
+          return false;
+        }
+        if (
+          criteria.severities.length &&
+          !item.securityAdvisories.some((v) =>
+            criteria.severities.some((s) => s.toUpperCase() === v.advisory.severity?.toUpperCase()),
+          )
+        ) {
+          return false;
+        }
+        if (criteria.vulnerableOnly && item.totalVulnerabilities === 0) {
+          return false;
+        }
+        return true;
+      });
       tableItems.value = filteredItems;
     };
 
-    if (props.filter) {
-      const keyword = props.filter.getFilterItemValue('keyword') as string;
-      filterTableItems(keyword);
-    }
+    filterTableItems({
+      keyword: (props.filter?.getFilterItemValue('keyword') as string) || '',
+      packageManagers: [],
+      severities: [],
+      vulnerableOnly: false,
+    });
 
-    return { tableColumns, tableItems, tableSorting, filterTableItems: filterTableItems };
+    return { tableColumns, tableItems, tableSorting, filterTableItems, packageManagerOptions, severityOptions };
   }
 
   public componentDidUpdate(prevProps: Readonly<Props>): void {
     if (prevProps.document !== this.props.document || prevProps.packages !== this.props.packages) {
-      this.setState(SpdxPackageTableCard.getDerivedStateFromProps(this.props));
+      this.setState(SpdxPackageTableCard.getDerivedStateFromProps(this.props), () =>
+        this.state.filterTableItems?.(this.getFilterCriteria()),
+      );
     }
   }
 
   public render(): JSX.Element {
-    if (!this.state?.tableItems?.length) {
-      return (
-        <ZeroData
-          className="margin-vertical-32"
-          iconProps={{ iconName: 'Package' }}
-          primaryText={this.props.filter.getFilterItemValue('keyword') ? 'No Match' : 'No Packages'}
-          secondaryText={
-            this.props.filter.getFilterItemValue('keyword')
-              ? 'Filter does not match any packages.'
-              : 'Document does not contain any packages.'
-          }
-          imageAltText=""
-        />
-      );
-    }
+    const hasActiveFilter =
+      !!this.props.filter.getFilterItemValue('keyword') ||
+      !!this.vulnerabilityFilter.getFilterItemValue<string[]>('packageManager')?.length ||
+      !!this.vulnerabilityFilter.getFilterItemValue<string[]>('severity')?.length ||
+      this.showVulnerableOnly.value;
+
     return (
-      <Card
-        className="flex-grow flex-column bolt-card bolt-table-card bolt-card-white"
-        contentProps={{ contentPadding: false }}
-      >
-        <Table<IPackageTableItem>
-          role="table"
-          containerClassName="h-scroll-auto"
-          columns={this.state.tableColumns}
-          itemProvider={this.state.tableItems}
-          virtualize={true}
-          behaviors={this.state.tableSorting ? [this.state.tableSorting] : undefined}
-          singleClickActivation={true}
-          selectRowOnClick={true}
-          onActivate={(event, tableRow) => {
-            if (tableRow?.data?.packageManagerUrl) {
-              window.open(tableRow.data.packageManagerUrl, '_blank');
+      <div className="flex-column flex-grow flex-gap-8">
+        <div className="flex-row flex-wrap flex-center flex-gap-8">
+          <FilterBar filter={this.vulnerabilityFilter}>
+            <DropdownFilterBarItem
+              filterItemKey="packageManager"
+              filter={this.vulnerabilityFilter}
+              items={this.state.packageManagerOptions}
+              selection={this.packageManagerSelection}
+              placeholder="Package Manager"
+            />
+            <DropdownFilterBarItem
+              filterItemKey="severity"
+              filter={this.vulnerabilityFilter}
+              items={this.state.severityOptions}
+              selection={this.severitySelection}
+              placeholder="Severity"
+            />
+          </FilterBar>
+          <Checkbox
+            label="Vulnerable only"
+            checked={this.showVulnerableOnly}
+            onChange={(event, checked) => {
+              this.showVulnerableOnly.value = checked;
+              this.state.filterTableItems?.(this.getFilterCriteria());
+            }}
+          />
+        </div>
+        {!this.state?.tableItems?.length ? (
+          <ZeroData
+            className="margin-vertical-32"
+            iconProps={{ iconName: 'Package' }}
+            primaryText={hasActiveFilter ? 'No Match' : 'No Packages'}
+            secondaryText={
+              hasActiveFilter ? 'Filter does not match any packages.' : 'Document does not contain any packages.'
             }
-          }}
-        />
-      </Card>
+            imageAltText=""
+          />
+        ) : (
+          <Card
+            className="flex-grow flex-column bolt-card bolt-table-card bolt-card-white"
+            contentProps={{ contentPadding: false }}
+          >
+            <Table<IPackageTableItem>
+              role="table"
+              containerClassName="h-scroll-auto"
+              columns={this.state.tableColumns}
+              itemProvider={this.state.tableItems}
+              virtualize={true}
+              behaviors={this.state.tableSorting ? [this.state.tableSorting] : undefined}
+              singleClickActivation={true}
+              selectRowOnClick={true}
+              onActivate={(event, tableRow) => {
+                if (tableRow?.data?.packageManagerUrl) {
+                  window.open(tableRow.data.packageManagerUrl, '_blank');
+                }
+              }}
+            />
+          </Card>
+        )}
+      </div>
     );
   }
 }

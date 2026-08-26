@@ -70,19 +70,32 @@ export class SpdxLicenseTableCard extends React.Component<Props, State> {
     const licenses = Array.from(
       new Set(props.document?.packages?.map((p) => p.licenseConcluded || p.licenseDeclared || '')),
     );
+
+    // Packages referencing each license id, resolved once up front instead of re-parsing every
+    // package's license expression per license -- at real-world scale (thousands of packages),
+    // that per-license re-scan is O(licenses x packages) instead of O(packages).
+    const packageRefsByLicenseId = new Map<string, { name: string; version: string; url: string | undefined }[]>();
+    for (const p of props.document?.packages || []) {
+      const packageRef = {
+        name: p.name || '',
+        version: p.versionInfo || '',
+        url: getExternalRefPackageManagerUrl(p.externalRefs),
+      };
+      for (const licenseId of getPackageLicenseReferences(p) || []) {
+        const existing = packageRefsByLicenseId.get(licenseId);
+        if (existing) {
+          existing.push(packageRef);
+        } else {
+          packageRefsByLicenseId.set(licenseId, [packageRef]);
+        }
+      }
+    }
+
     const rawTableItems: ILicenseTableItem[] =
       props.licenses
         ?.orderBy((license: ILicense) => license.id)
         ?.map((license: ILicense) => {
-          const packagesWithLicense = props.document.packages
-            ?.filter((p) => getPackageLicenseReferences(p)?.includes(license.id))
-            ?.map((p) => {
-              return {
-                name: p.name || '',
-                version: p.versionInfo || '',
-                url: getExternalRefPackageManagerUrl(p.externalRefs),
-              };
-            });
+          const packagesWithLicense = packageRefsByLicenseId.get(license.id) || [];
           const licenseRisk = getLicenseRiskAssessment(license.id);
           return {
             id: license.id,

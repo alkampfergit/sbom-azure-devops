@@ -54,6 +54,19 @@ export class SpdxFileTableCard extends React.Component<Props, State> {
   }
 
   static getDerivedStateFromProps(props: Props): State {
+    // Package name for every file, resolved once up front instead of a `packages.find(p =>
+    // p.hasFiles.includes(fileId))` scan per file -- at real-world scale (tens of thousands of
+    // files x thousands of packages), that per-file scan is O(files x packages x avgFilesPerPackage)
+    // and is slow enough to visibly hang the browser tab when switching to this view.
+    const packageNameByFileId = new Map<string, string>();
+    for (const pkg of props.document.packages || []) {
+      for (const fileId of pkg.hasFiles || []) {
+        if (!packageNameByFileId.has(fileId)) {
+          packageNameByFileId.set(fileId, pkg.name);
+        }
+      }
+    }
+
     const rawTableItems: IFileTableItem[] =
       props.files
         ?.orderBy((file: IFile) => file.SPDXID)
@@ -62,7 +75,7 @@ export class SpdxFileTableCard extends React.Component<Props, State> {
             id: x.SPDXID,
             name: Path.normalize(x.fileName),
             checksum: getChecksum(x.checksums, ChecksumAlgorithm.SHA256) || '',
-            package: props.document.packages?.find((p) => p.hasFiles?.includes(x.SPDXID))?.name || '',
+            package: packageNameByFileId.get(x.SPDXID) || '',
           };
         }) || [];
 

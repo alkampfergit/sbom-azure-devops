@@ -83,9 +83,6 @@ export class SpdxSecurityTableCard extends React.Component<Props, State> {
       props.securityAdvisories
         ?.orderBy((vuln: ISecurityVulnerability) => getSeverityByName(vuln.advisory.severity).weight, false)
         ?.map((vuln: ISecurityVulnerability) => {
-          const packageSpdxId = props.document.packages?.find(
-            (p) => p.name == vuln.package.name && p.versionInfo == vuln.package.version,
-          )?.SPDXID;
           const cvssParts = vuln.advisory.cvss?.vectorString?.match(/^CVSS\:([\d]+\.[\d]+)\/(.*)$/i);
           return {
             ghsaId: vuln.advisory.identifiers.find((i) => i.type == SecurityAdvisoryIdentifierType.Ghsa)?.value || '',
