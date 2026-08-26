@@ -1,7 +1,7 @@
 {
-  "id": "sbom-tool",
-  "name": "SBOM Tool",
+  "id": "sbom-tool-dev",
+  "name": "SBOM Tool [DEV]",
   "version": "#{MAJOR_MINOR_PATCH}#.#{BUILD_NUMBER}#",
-  "public": true,
+  "public": false,
   "baseUri": null
 }
