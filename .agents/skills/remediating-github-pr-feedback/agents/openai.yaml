@@ -1,0 +1,4 @@
+interface:
+  display_name: 'Remediating GitHub PR Feedback'
+  short_description: 'Fix, verify, commit, and push PR feedback'
+  default_prompt: 'Use $remediating-github-pr-feedback to address the validated review comments on the current pull request, verify the fixes, and prepare the authorized commit and push.'
