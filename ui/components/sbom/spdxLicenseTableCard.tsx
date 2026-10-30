@@ -70,19 +70,32 @@ export class SpdxLicenseTableCard extends React.Component<Props, State> {
     const licenses = Array.from(
       new Set(props.document?.packages?.map((p) => p.licenseConcluded || p.licenseDeclared || '')),
     );
+
+    // Packages referencing each license id, resolved once up front instead of re-parsing every
+    // package's license expression per license -- at real-world scale (thousands of packages),
+    // that per-license re-scan is O(licenses x packages) instead of O(packages).
+    const packageRefsByLicenseId = new Map<string, { name: string; version: string; url: string | undefined }[]>();
+    for (const p of props.document?.packages || []) {
+      const packageRef = {
+        name: p.name || '',
+        version: p.versionInfo || '',
+        url: getExternalRefPackageManagerUrl(p.externalRefs),
+      };
+      for (const licenseId of getPackageLicenseReferences(p) || []) {
+        const existing = packageRefsByLicenseId.get(licenseId);
+        if (existing) {
+          existing.push(packageRef);
+        } else {
+          packageRefsByLicenseId.set(licenseId, [packageRef]);
+        }
+      }
+    }
+
     const rawTableItems: ILicenseTableItem[] =
       props.licenses
         ?.orderBy((license: ILicense) => license.id)
         ?.map((license: ILicense) => {
-          const packagesWithLicense = props.document.packages
-            ?.filter((p) => getPackageLicenseReferences(p)?.includes(license.id))
-            ?.map((p) => {
-              return {
-                name: p.name || '',
-                version: p.versionInfo || '',
-                url: getExternalRefPackageManagerUrl(p.externalRefs),
-              };
-            });
+          const packagesWithLicense = packageRefsByLicenseId.get(license.id) || [];
           const licenseRisk = getLicenseRiskAssessment(license.id);
           return {
             id: license.id,
@@ -148,26 +161,25 @@ export class SpdxLicenseTableCard extends React.Component<Props, State> {
         proposedSortOrder: SortOrder,
         event: React.KeyboardEvent<HTMLElement> | React.MouseEvent<HTMLElement>,
       ) => {
-        tableItems.splice(
-          0,
-          tableItems.length,
-          ...sortItems<ILicenseTableItem>(
-            columnIndex,
-            proposedSortOrder,
-            [
-              // Sort on name
-              (item1: ILicenseTableItem, item2: ILicenseTableItem): number => {
-                return item1.name!.localeCompare(item2.name!);
-              },
-              // Sort on package count
-              (item1: ILicenseTableItem, item2: ILicenseTableItem): number => {
-                return item1.packages.length - item2.packages.length;
-              },
-              null,
-            ],
-            tableColumns,
-            rawTableItems,
-          ),
+        // Assign via the `.value` setter, not `.splice(0, length, ...items)` -- spreading a large
+        // array as individual call arguments overflows the JS call stack (RangeError: Maximum
+        // call stack size exceeded) once there are tens of thousands of items.
+        tableItems.value = sortItems<ILicenseTableItem>(
+          columnIndex,
+          proposedSortOrder,
+          [
+            // Sort on name
+            (item1: ILicenseTableItem, item2: ILicenseTableItem): number => {
+              return item1.name!.localeCompare(item2.name!);
+            },
+            // Sort on package count
+            (item1: ILicenseTableItem, item2: ILicenseTableItem): number => {
+              return item1.packages.length - item2.packages.length;
+            },
+            null,
+          ],
+          tableColumns,
+          rawTableItems,
         );
       },
     );
@@ -179,7 +191,7 @@ export class SpdxLicenseTableCard extends React.Component<Props, State> {
           item.name?.toLowerCase()?.includes(keyword.toLowerCase()) ||
           item.packages?.some((p) => p.name.toLowerCase().includes(keyword.toLowerCase())),
       );
-      tableItems.splice(0, tableItems.length, ...filteredItems);
+      tableItems.value = filteredItems;
     };
 
     if (props.filter) {

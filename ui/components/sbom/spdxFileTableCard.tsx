@@ -54,6 +54,19 @@ export class SpdxFileTableCard extends React.Component<Props, State> {
   }
 
   static getDerivedStateFromProps(props: Props): State {
+    // Package name for every file, resolved once up front instead of a `packages.find(p =>
+    // p.hasFiles.includes(fileId))` scan per file -- at real-world scale (tens of thousands of
+    // files x thousands of packages), that per-file scan is O(files x packages x avgFilesPerPackage)
+    // and is slow enough to visibly hang the browser tab when switching to this view.
+    const packageNameByFileId = new Map<string, string>();
+    for (const pkg of props.document.packages || []) {
+      for (const fileId of pkg.hasFiles || []) {
+        if (!packageNameByFileId.has(fileId)) {
+          packageNameByFileId.set(fileId, pkg.name);
+        }
+      }
+    }
+
     const rawTableItems: IFileTableItem[] =
       props.files
         ?.orderBy((file: IFile) => file.SPDXID)
@@ -62,7 +75,7 @@ export class SpdxFileTableCard extends React.Component<Props, State> {
             id: x.SPDXID,
             name: Path.normalize(x.fileName),
             checksum: getChecksum(x.checksums, ChecksumAlgorithm.SHA256) || '',
-            package: props.document.packages?.find((p) => p.hasFiles?.includes(x.SPDXID))?.name || '',
+            package: packageNameByFileId.get(x.SPDXID) || '',
           };
         }) || [];
 
@@ -125,30 +138,29 @@ export class SpdxFileTableCard extends React.Component<Props, State> {
         proposedSortOrder: SortOrder,
         event: React.KeyboardEvent<HTMLElement> | React.MouseEvent<HTMLElement>,
       ) => {
-        tableItems.splice(
-          0,
-          tableItems.length,
-          ...sortItems<IFileTableItem>(
-            columnIndex,
-            proposedSortOrder,
-            [
-              // Sort on package name
-              ...(hasMultipleRootPackages
-                ? [
-                    (item1: IFileTableItem, item2: IFileTableItem): number => {
-                      return (item1.package + item1.name).localeCompare(item2.package + item2.name);
-                    },
-                  ]
-                : []),
-              // Sort on file name
-              (item1: IFileTableItem, item2: IFileTableItem): number => {
-                return item1.name!.localeCompare(item2.name!);
-              },
-              null,
-            ],
-            tableColumns,
-            rawTableItems,
-          ),
+        // Assign via the `.value` setter, not `.splice(0, length, ...items)` -- spreading a large
+        // array as individual call arguments overflows the JS call stack (RangeError: Maximum
+        // call stack size exceeded) once there are tens of thousands of items.
+        tableItems.value = sortItems<IFileTableItem>(
+          columnIndex,
+          proposedSortOrder,
+          [
+            // Sort on package name
+            ...(hasMultipleRootPackages
+              ? [
+                  (item1: IFileTableItem, item2: IFileTableItem): number => {
+                    return (item1.package + item1.name).localeCompare(item2.package + item2.name);
+                  },
+                ]
+              : []),
+            // Sort on file name
+            (item1: IFileTableItem, item2: IFileTableItem): number => {
+              return item1.name!.localeCompare(item2.name!);
+            },
+            null,
+          ],
+          tableColumns,
+          rawTableItems,
         );
       },
     );
@@ -160,7 +172,7 @@ export class SpdxFileTableCard extends React.Component<Props, State> {
           item.name?.toLowerCase()?.includes(keyword.toLowerCase()) ||
           item.checksum?.toLowerCase()?.includes(keyword.toLowerCase()),
       );
-      tableItems.splice(0, tableItems.length, ...filteredItems);
+      tableItems.value = filteredItems;
     };
 
     if (props.filter) {

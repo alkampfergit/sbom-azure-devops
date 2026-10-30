@@ -15,50 +15,14 @@ jobs:
         with:
           fetch-depth: 0 # Fetch all history so that GitVersion can calculate the version
 
-      - name: Use GitVersion 6.x
-        uses: gittools/actions/gitversion/setup@v3
-        with:
-          versionSpec: '6.0.x'
-
-      - name: Determine version
-        id: gitversion
-        uses: gittools/actions/gitversion/execute@v3
-        with:
-          useConfigFile: true
-
-      - name: Update version numbers in vss-extension.overrides.json
-        uses: cschleiden/replace-tokens@v1
-        with:
-          files: '["vss-extension.overrides.*.json"]'
-        env:
-          MAJOR_MINOR_PATCH: ${{ steps.gitversion.outputs.majorMinorPatch }}
-          BUILD_NUMBER: ${{ github.run_number }}
-
-      - name: Update version numbers in task.json
-        run: |
-          echo "`jq '.version.Major=${{ steps.gitversion.outputs.major }}' task/task.json`" > task/task.json
-          echo "`jq '.version.Minor=${{ steps.gitversion.outputs.minor }}' task/task.json`" > task/task.json
-          echo "`jq '.version.Patch=${{ github.run_number }}' task/task.json`" > task/task.json
-
       - name: Use Node.js 20.1.x
         uses: actions/setup-node@v4
         with:
           node-version: '20.1.x'
 
-      - name: NPM Install
-        run: npm install
-
-      - name: Build extension
-        run: npm run build
-
-      - name: Run unit tests
-        run: npm test
-
-      - name: Package extension (dev)
-        run: npm run package:dev
-
-      - name: Package extension (prod)
-        run: npm run package:prod
+      - name: Build and package extension
+        shell: pwsh
+        run: ./build.ps1 -BuildNumber ${{ github.run_number }}
 
       - name: Upload artifact (drop)
         uses: actions/upload-artifact@v4

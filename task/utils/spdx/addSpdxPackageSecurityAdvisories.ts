@@ -78,28 +78,7 @@ export async function addSpdxPackageSecurityAdvisoryExternalRefsAsync(
       return packageReferenceLocator === vulnerability.package.id;
     });
     if (pkg) {
-      if (!pkg.externalRefs) {
-        pkg.externalRefs = [];
-      }
-
-      // Add a human readable reference to the security advisory web page
-      pkg.externalRefs.push({
-        referenceCategory: ExternalRefCategory.Security,
-        referenceType: ExternalRefSecurityType.Advisory,
-        referenceLocator: vulnerability.advisory.permalink,
-        comment: `[${vulnerability.advisory.severity}] ${vulnerability.advisory.summary}; Affects ${vulnerability.package.name} v${vulnerability.package.version}`,
-      });
-
-      // Add a machine readable reference to the security advisory GHSA data; This is used by the SBOM tab to display extended advisory details in the UI
-      const advisoryId =
-        vulnerability.advisory.identifiers?.find((i) => i.type === SecurityAdvisoryIdentifierType.Ghsa)?.value ||
-        vulnerability.advisory?.identifiers[0]?.value;
-      pkg.externalRefs.push({
-        referenceCategory: ExternalRefCategory.Security,
-        referenceType: ExternalRefSecurityType.Url,
-        referenceLocator: `data:text/json;base64,${Buffer.from(JSON.stringify(vulnerability)).toString('base64')}`,
-        comment: `GHSA security vulnerability details for ${advisoryId} encoded as Base64 JSON text`,
-      });
+      addSecurityAdvisoryExternalRefsToPackage(pkg, vulnerability);
     }
   }
 
@@ -113,6 +92,39 @@ export async function addSpdxPackageSecurityAdvisoryExternalRefsAsync(
   // Write changes to the SPDX file
   console.info(`Enriching SDPX with security advisory external references`);
   await fs.writeFile(spdxFilePath, JSON.stringify(sbom, null, 2), 'utf-8');
+}
+
+/**
+ * Add the two security advisory external references (a human-readable one, and a machine-readable
+ * one used by the SBOM tab to render extended advisory details) for a single vulnerability onto a
+ * single SPDX package object. Shared between the GHSA-fetch path above and the
+ * `vulnerabilitiesSource` file-based path (addSpdxPackageVulnerabilitiesFromFile.ts).
+ * @param pkg The SPDX package object (parsed JSON, not a typed model) to add references to
+ * @param vulnerability The vulnerability to record
+ */
+export function addSecurityAdvisoryExternalRefsToPackage(pkg: any, vulnerability: ISecurityVulnerability): void {
+  if (!pkg.externalRefs) {
+    pkg.externalRefs = [];
+  }
+
+  // Add a human readable reference to the security advisory web page
+  pkg.externalRefs.push({
+    referenceCategory: ExternalRefCategory.Security,
+    referenceType: ExternalRefSecurityType.Advisory,
+    referenceLocator: vulnerability.advisory.permalink,
+    comment: `[${vulnerability.advisory.severity}] ${vulnerability.advisory.summary}; Affects ${vulnerability.package.name} v${vulnerability.package.version}`,
+  });
+
+  // Add a machine readable reference to the security advisory data; This is used by the SBOM tab to display extended advisory details in the UI
+  const advisoryId =
+    vulnerability.advisory.identifiers?.find((i) => i.type === SecurityAdvisoryIdentifierType.Ghsa)?.value ||
+    vulnerability.advisory?.identifiers[0]?.value;
+  pkg.externalRefs.push({
+    referenceCategory: ExternalRefCategory.Security,
+    referenceType: ExternalRefSecurityType.Url,
+    referenceLocator: `data:text/json;base64,${Buffer.from(JSON.stringify(vulnerability)).toString('base64')}`,
+    comment: `Security vulnerability details for ${advisoryId} encoded as Base64 JSON text`,
+  });
 }
 
 /**

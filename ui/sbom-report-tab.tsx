@@ -25,6 +25,8 @@ import './sbom-report-tab.scss';
 
 const SPDX_JSON_ATTACHMENT_TYPE = 'spdx.json';
 const SPDX_SVG_ATTACHMENT_TYPE = 'spdx.svg';
+// Copy of a manifest with only its vulnerable packages; attached by builds that ran the newer task
+const SPDX_VULNERABLE_JSON_ATTACHMENT_TYPE = 'spdx.vulnerable.json';
 
 interface State {
   build?: {
@@ -99,63 +101,38 @@ export class Root extends React.Component<{}, State> {
       // Get all SPDX JSON artifact attached to the current build
       const buildClient = getClient(BuildRestClient);
       const spdxJsonAttachments = await buildClient.getAttachments(projectId, buildId, SPDX_JSON_ATTACHMENT_TYPE);
+      const spdxVulnerableAttachments = await buildClient.getAttachments(
+        projectId,
+        buildId,
+        SPDX_VULNERABLE_JSON_ATTACHMENT_TYPE,
+      );
       const spdxSvgAttachments = await buildClient.getAttachments(projectId, buildId, SPDX_SVG_ATTACHMENT_TYPE);
       console.info(`Found ${spdxJsonAttachments.length} SBOM artifact attachment(s) for build ${buildId}`);
 
-      // Load and parse each artifact
-      const sbomArtifacts: ISbomBuildArtifact[] = [];
-      const loadedSpdxJsonAttachments = await Promise.all(
-        spdxJsonAttachments.map((attachment) => this.getBuildAttachment(buildClient, attachment)),
+      // Load each artifact; the vulnerable-only copy is downloaded first when the build has one
+      const loadedArtifacts = await Promise.all(
+        spdxJsonAttachments.map((spdxJsonAttachment) =>
+          this.loadSbomArtifact(
+            buildClient,
+            spdxJsonAttachment,
+            spdxVulnerableAttachments.find((a) => a.name === spdxJsonAttachment.name),
+            spdxSvgAttachments.find(
+              (a) => a.name === spdxJsonAttachment.name.replace(SPDX_JSON_ATTACHMENT_TYPE, SPDX_SVG_ATTACHMENT_TYPE),
+            ),
+          ),
+        ),
       );
-      for (const spdxJsonAttachment of loadedSpdxJsonAttachments) {
-        try {
-          this.setState({
-            loadingMessage: `Parsing '${spdxJsonAttachment.name}' (${loadedSpdxJsonAttachments.indexOf(spdxJsonAttachment) + 1}/${loadedSpdxJsonAttachments.length})...`,
-          });
-
-          // Parse the SPDX document JSON
-          const spdxDocument = JSON.parse(new TextDecoder().decode(spdxJsonAttachment.stream)) as IDocument;
-          if (!spdxDocument) {
-            throw new Error(`Attachment stream '${spdxJsonAttachment.name}' could not be parsed as JSON`);
-          }
-
-          // TODO: Remove SVG loading once web browser SPDX to SVG generation is implemented
-          const spdxSvgAttachment = spdxSvgAttachments.find(
-            (a) => a.name === spdxJsonAttachment.name.replace(SPDX_JSON_ATTACHMENT_TYPE, SPDX_SVG_ATTACHMENT_TYPE),
-          );
-          const loadSvgDocumentAsync = spdxSvgAttachment
-            ? async () => {
-                return (await this.getBuildAttachment(buildClient, spdxSvgAttachment))?.stream;
-              }
-            : undefined;
-
-          // Add the parsed artifact to the list
-          sbomArtifacts.push({
-            id: spdxDocument.documentNamespace,
-            spdxDocument: spdxDocument,
-            spdxJsonDocument: spdxJsonAttachment.stream,
-            loadSvgDocumentAsync: loadSvgDocumentAsync,
-          });
-        } catch (error) {
-          throw new Error(`Unable to parse build attachment '${spdxJsonAttachment.name}'. ${error}`.trim());
-        }
-      }
 
       // Update the state with the loaded SBOM artifacts
-      console.info(`Loaded ${Object.keys(sbomArtifacts).length} SBOM artifact(s) for build ${buildId}`);
-      this.setState({
-        artifacts: sbomArtifacts.orderBy((a) => a.spdxDocument.name),
-        loadingMessage: undefined,
-        loadError: undefined,
-      });
-
-      // Generate a summary SBOM artifact if multiple artifacts were loaded
-      this.generateSbomSummaryArtifact();
+      console.info(`Loaded ${loadedArtifacts.length} SBOM artifact(s) for build ${buildId}`);
+      const sbomArtifacts = loadedArtifacts.orderBy((a: ISbomBuildArtifact) => a.spdxDocument.name);
+      this.updateArtifacts(() => sbomArtifacts);
+      this.setState({ loadingMessage: undefined, loadError: undefined });
 
       // Set the selected artifact to either the summary artifact (if present) or the first manifest artifact
       this.selectedArtifactId.value = this.state?.summaryArtifact
-        ? this.state.summaryArtifact.spdxDocument?.documentNamespace || ''
-        : sbomArtifacts[0]?.spdxDocument?.documentNamespace || '';
+        ? this.state.summaryArtifact.id
+        : sbomArtifacts[0]?.id || '';
     } catch (error) {
       console.error(error);
       this.setState({ loadError: error });
@@ -184,22 +161,93 @@ export class Root extends React.Component<{}, State> {
           spdxJsonDocument: spdxJsonStream,
         };
 
-        // Update the state with the new SBOM artifact
+        // Update the state with the new SBOM artifact; this also regenerates the summary artifact, if multiple are loaded
         this.selectedArtifactId.value = newArtifact.id;
-        this.setState({
-          artifacts: [...(this.state.artifacts || []), newArtifact].orderBy((a) => a.spdxDocument.name),
-          loadingMessage: undefined,
-          loadError: undefined,
-        });
-
-        // Regenerate the summary SBOM artifact, if multiple artifacts are now loaded
-        this.generateSbomSummaryArtifact();
+        this.updateArtifacts((artifacts) => [...artifacts, newArtifact].orderBy((a) => a.spdxDocument.name));
+        this.setState({ loadingMessage: undefined, loadError: undefined });
       } catch (error) {
         console.error(error);
         this.setState({ loadError: error });
         return;
       }
     }
+  }
+
+  /**
+   * Creates the artifact for one manifest. When the build has a vulnerable-only copy of the manifest, the artifact starts
+   * from that copy and loads the full manifest on demand; otherwise the full manifest is loaded straight away.
+   * @param client The build client
+   * @param spdxJsonAttachment The full manifest attachment
+   * @param vulnerableAttachment The vulnerable-only copy of the manifest, if the build has one
+   * @param svgAttachment The SVG graph of the manifest, if the build has one
+   * @returns The artifact
+   */
+  private async loadSbomArtifact(
+    client: BuildRestClient,
+    spdxJsonAttachment: Attachment,
+    vulnerableAttachment: Attachment | undefined,
+    svgAttachment: Attachment | undefined,
+  ): Promise<ISbomBuildArtifact> {
+    const loadSvgDocumentAsync = svgAttachment
+      ? async () => {
+          return (await this.getBuildAttachment(client, svgAttachment))?.stream;
+        }
+      : undefined;
+
+    // Loads the full manifest once, however many views ask for it
+    let fullArtifactLoad: Promise<ISbomBuildArtifact> | undefined;
+    const loadFullArtifactAsync = (): Promise<ISbomBuildArtifact> => {
+      if (!fullArtifactLoad) {
+        fullArtifactLoad = this.getBuildAttachment(client, spdxJsonAttachment)
+          .then((attachment) => this.createArtifact(attachment.stream, loadSvgDocumentAsync))
+          .then((fullArtifact) => {
+            this.updateArtifacts((artifacts) => artifacts.map((a) => (a.id === fullArtifact.id ? fullArtifact : a)));
+            return fullArtifact;
+          })
+          .catch((error) => {
+            fullArtifactLoad = undefined;
+            throw error;
+          });
+      }
+      return fullArtifactLoad;
+    };
+
+    try {
+      if (vulnerableAttachment) {
+        const vulnerable = await this.getBuildAttachment(client, vulnerableAttachment);
+        return {
+          ...this.createArtifact(vulnerable.stream, loadSvgDocumentAsync),
+          isPartial: true,
+          loadFullArtifactAsync,
+        };
+      }
+      const full = await this.getBuildAttachment(client, spdxJsonAttachment);
+      return this.createArtifact(full.stream, loadSvgDocumentAsync);
+    } catch (error) {
+      throw new Error(`Unable to parse build attachment '${spdxJsonAttachment.name}'. ${error}`.trim());
+    }
+  }
+
+  /**
+   * Parses the SPDX JSON bytes of a manifest into an artifact
+   * @param spdxJsonStream The SPDX JSON bytes
+   * @param loadSvgDocumentAsync Loads the SVG graph of the manifest, if available
+   * @returns The artifact
+   */
+  private createArtifact(
+    spdxJsonStream: ArrayBuffer,
+    loadSvgDocumentAsync?: () => Promise<ArrayBuffer>,
+  ): ISbomBuildArtifact {
+    const spdxDocument = JSON.parse(new TextDecoder().decode(spdxJsonStream)) as IDocument;
+    if (!spdxDocument) {
+      throw new Error('Attachment stream could not be parsed as JSON');
+    }
+    return {
+      id: spdxDocument.documentNamespace,
+      spdxDocument: spdxDocument,
+      spdxJsonDocument: spdxJsonStream,
+      loadSvgDocumentAsync: loadSvgDocumentAsync,
+    };
   }
 
   /**
@@ -247,26 +295,61 @@ export class Root extends React.Component<{}, State> {
   }
 
   /**
+   * Replaces the list of artifacts and regenerates the summary artifact from it
+   * @param update Computes the new list of artifacts from the current list
+   */
+  private updateArtifacts(update: (artifacts: ISbomBuildArtifact[]) => ISbomBuildArtifact[]) {
+    this.setState((state) => {
+      const artifacts = update(state.artifacts || []);
+      return {
+        artifacts,
+        summaryArtifact: this.createSummaryArtifact(artifacts, state.build, state.summaryArtifact?.id),
+      };
+    });
+  }
+
+  /**
    * Merges all SBOM artifacts into a single "summary artifact" document;
    * This allows the user to view all information across all artifacts from a single view
+   * @param artifacts The artifacts to merge
+   * @param build The build the artifacts belong to
+   * @param summaryId The id of the existing summary artifact, kept so the selected tab stays selected
+   * @returns The summary artifact, or undefined when there is less than two artifacts
    */
-  private generateSbomSummaryArtifact() {
-    if (this.state?.artifacts) {
-      if (this.state.artifacts.length > 1) {
-        const summarisedSpdxDocument = mergeSpdxDocuments(
-          this.state.build?.name,
-          this.state.build?.number,
-          this.state.artifacts.map((a) => a.spdxDocument),
-        );
-        this.setState({
-          summaryArtifact: {
-            id: summarisedSpdxDocument.documentNamespace,
-            spdxDocument: summarisedSpdxDocument,
-            spdxJsonDocument: new TextEncoder().encode(JSON.stringify(summarisedSpdxDocument, null, 2)).buffer,
-          },
-        });
-      }
+  private createSummaryArtifact(
+    artifacts: ISbomBuildArtifact[],
+    build: State['build'],
+    summaryId?: string,
+  ): ISbomBuildArtifact | undefined {
+    if (artifacts.length < 2) {
+      return undefined;
     }
+    const summarisedSpdxDocument = mergeSpdxDocuments(
+      build?.name,
+      build?.number,
+      artifacts.map((a) => a.spdxDocument),
+    );
+    const isPartial = artifacts.some((a) => a.isPartial);
+    return {
+      id: summaryId || summarisedSpdxDocument.documentNamespace,
+      spdxDocument: summarisedSpdxDocument,
+      spdxJsonDocument: new TextEncoder().encode(JSON.stringify(summarisedSpdxDocument, null, 2)).buffer,
+      isPartial,
+      loadFullArtifactAsync: isPartial ? () => this.loadFullArtifactsAsync() : undefined,
+    };
+  }
+
+  /**
+   * Loads the full manifest of every artifact that only has its vulnerable packages loaded, so the summary can be shown
+   * @returns The summary artifact
+   */
+  private async loadFullArtifactsAsync(): Promise<ISbomBuildArtifact> {
+    const partialArtifacts = (this.state.artifacts || []).filter((a) => a.isPartial);
+    await Promise.all(partialArtifacts.map((a) => a.loadFullArtifactAsync!()));
+    if (!this.state.summaryArtifact) {
+      throw new Error('Unable to load the summary of the SBOM artifacts');
+    }
+    return this.state.summaryArtifact;
   }
 
   private onSelectedArtifactTabChanged = (newSpdxId: string) => {

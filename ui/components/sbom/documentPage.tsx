@@ -1,20 +1,18 @@
 import * as React from 'react';
 
 import { ObservableValue } from 'azure-devops-ui/Core/Observable';
+import { MessageCard, MessageCardSeverity } from 'azure-devops-ui/MessageCard';
 import { Observer } from 'azure-devops-ui/Observer';
 import { Orientation, Page } from 'azure-devops-ui/Page';
+import { Spinner, SpinnerSize } from 'azure-devops-ui/Spinner';
 import { Tab, TabBar, TabContent, TabSize } from 'azure-devops-ui/Tabs';
 import { InlineKeywordFilterBarItem } from 'azure-devops-ui/TextFilterBarItem';
 import { Filter, IFilter } from 'azure-devops-ui/Utilities/Filter';
 
 import { ISecurityVulnerability } from '../../../shared/ghsa/models/securityVulnerability';
 import { ISbomBuildArtifact } from '../../../shared/models/sbomBuildArtifact';
+import { getPackageSecurityAdvisories } from '../../../shared/spdx/getPackageSecurityAdvisories';
 import { isPackageRootLevel } from '../../../shared/spdx/models/2.3/document';
-import {
-  ExternalRefCategory,
-  ExternalRefSecurityType,
-  parseExternalRefsAs,
-} from '../../../shared/spdx/models/2.3/externalRef';
 import { IFile } from '../../../shared/spdx/models/2.3/file';
 import { getLicensesFromExpression, ILicense } from '../../../shared/spdx/models/2.3/license';
 import {
@@ -22,7 +20,6 @@ import {
   getPackageSupplierOrganization,
   IPackage,
 } from '../../../shared/spdx/models/2.3/package';
-import { parseSpdxLegacySecurityAdvisories } from '../../../shared/spdx/parseSpdxLegacySecurityAdvisories';
 
 import { SbomDocumentHeader } from './documentHeader';
 import { SpdxFileTableCard } from './spdxFileTableCard';
@@ -44,16 +41,24 @@ interface State {
   securityAdvisories: ISecurityVulnerability[];
   licenses: ILicense[];
   suppliers: string[];
+  isLoadingFullArtifact: boolean;
+  loadFullArtifactError?: any;
 }
 
 export class SbomDocumentPage extends React.Component<Props, State> {
   private selectedTabId: ObservableValue<string>;
   private filter: IFilter;
+  private packagesVulnerableOnly: ObservableValue<boolean>;
 
   constructor(props: Props) {
     super(props);
     this.state = SbomDocumentPage.getDerivedStateFromProps(props);
-    this.selectedTabId = new ObservableValue('summary');
+    // Open on the vulnerable packages when the document has any advisories, so the most relevant
+    // information is visible first; otherwise fall back to the summary
+    const hasVulnerabilities = this.state.securityAdvisories.length > 0;
+    this.selectedTabId = new ObservableValue(hasVulnerabilities ? 'packages' : 'summary');
+    this.packagesVulnerableOnly = new ObservableValue(hasVulnerabilities);
+    this.packagesVulnerableOnly.subscribe(this.onPackagesVulnerableOnlyChanged);
     this.filter = new Filter();
   }
 
@@ -64,16 +69,7 @@ export class SbomDocumentPage extends React.Component<Props, State> {
       return !isPackageRootLevel(spdx, p.SPDXID);
     });
     const securityAdvisories = packages
-      .flatMap(
-        (pkg: IPackage) =>
-          parseExternalRefsAs<ISecurityVulnerability>(
-            pkg.externalRefs || [],
-            ExternalRefCategory.Security,
-            ExternalRefSecurityType.Url,
-          ) ||
-          parseSpdxLegacySecurityAdvisories(pkg) ||
-          [],
-      )
+      .flatMap((pkg: IPackage) => getPackageSecurityAdvisories(pkg))
       .filter((vuln): vuln is ISecurityVulnerability => !!vuln && !!vuln.package && !!vuln.advisory)
       .distinctBy((vuln: ISecurityVulnerability) => vuln.advisory.permalink);
     const licenses = packages
@@ -94,6 +90,8 @@ export class SbomDocumentPage extends React.Component<Props, State> {
       securityAdvisories,
       licenses,
       suppliers,
+      isLoadingFullArtifact: false,
+      loadFullArtifactError: undefined,
     };
   }
 
@@ -107,6 +105,8 @@ export class SbomDocumentPage extends React.Component<Props, State> {
     if (!this.props?.artifact || !this.state) {
       return <div />;
     }
+    // A partial artifact only has its vulnerable packages, so its counts would be wrong; show no badges for it
+    const badgeCount = (count: number) => (this.props.artifact.isPartial ? undefined : count);
     // TODO: Use page providers; https://developer.microsoft.com/en-us/azure-devops/components/page#page-with-providers
     return (
       <Page orientation={Orientation.Vertical} className="flex-grow full-view-height ">
@@ -119,15 +119,15 @@ export class SbomDocumentPage extends React.Component<Props, State> {
           className="margin-vertical-16"
         >
           <Tab id="summary" name="Summary" />
-          <Tab id="files" name="Files" badgeCount={this.state.files.length} />
-          {this.state.packages.length ? (
-            <Tab id="packages" name="Packages" badgeCount={this.state.packages.length} />
+          <Tab id="files" name="Files" badgeCount={badgeCount(this.state.files.length)} />
+          {this.props.artifact.isPartial || this.state.packages.length ? (
+            <Tab id="packages" name="Packages" badgeCount={badgeCount(this.state.packages.length)} />
           ) : null}
-          {this.state.licenses.length ? (
-            <Tab id="licenses" name="Licenses" badgeCount={this.state.licenses.length} />
+          {this.props.artifact.isPartial || this.state.licenses.length ? (
+            <Tab id="licenses" name="Licenses" badgeCount={badgeCount(this.state.licenses.length)} />
           ) : null}
-          {this.state.suppliers.length ? (
-            <Tab id="suppliers" name="Suppliers" badgeCount={this.state.suppliers.length} />
+          {this.props.artifact.isPartial || this.state.suppliers.length ? (
+            <Tab id="suppliers" name="Suppliers" badgeCount={badgeCount(this.state.suppliers.length)} />
           ) : null}
           {this.state.securityAdvisories.length ? (
             <Tab id="securityAdvisories" name="Security Advisories" badgeCount={this.state.securityAdvisories.length} />
@@ -141,84 +141,125 @@ export class SbomDocumentPage extends React.Component<Props, State> {
           ) : null}
         </TabBar>
         <TabContent>
-          <Observer selectedTabId={this.selectedTabId}>
-            {(props: { selectedTabId: string }) => {
-              switch (props.selectedTabId) {
-                case 'summary':
-                  return (
-                    <div className="page-content flex-grow">
-                      <SpdxSummaryCard
-                        document={this.props.artifact.spdxDocument}
-                        files={this.state.files}
-                        packages={this.state.packages}
-                        securityAdvisories={this.state.securityAdvisories}
-                        licenses={this.state.licenses}
-                        suppliers={this.state.suppliers}
-                      />
-                    </div>
-                  );
-                case 'files':
-                  return (
-                    <div className="page-content flex-grow">
-                      <SpdxFileTableCard
-                        document={this.props.artifact.spdxDocument}
-                        files={this.state.files}
-                        filter={this.filter}
-                      />
-                    </div>
-                  );
-                case 'packages':
-                  return (
-                    <div className="page-content flex-grow">
-                      <SpdxPackageTableCard
-                        document={this.props.artifact.spdxDocument}
-                        packages={this.state.packages}
-                        filter={this.filter}
-                      />
-                    </div>
-                  );
-                case 'licenses':
-                  return (
-                    <div className="page-content flex-grow">
-                      <SpdxLicenseTableCard
-                        document={this.props.artifact.spdxDocument}
-                        licenses={this.state.licenses}
-                        filter={this.filter}
-                      />
-                    </div>
-                  );
-                case 'suppliers':
-                  return (
-                    <div className="page-content flex-grow">
-                      <SpdxSupplierTableCard
-                        document={this.props.artifact.spdxDocument}
-                        suppliers={this.state.suppliers}
-                        filter={this.filter}
-                      />
-                    </div>
-                  );
-                case 'securityAdvisories':
-                  return (
-                    <div className="page-content flex-grow">
-                      <SpdxSecurityTableCard
-                        document={this.props.artifact.spdxDocument}
-                        securityAdvisories={this.state.securityAdvisories}
-                        filter={this.filter}
-                      />
-                    </div>
-                  );
-                case 'relationships':
-                  return (
-                    <SpdxRelationshipCard
-                      document={this.props.artifact.spdxDocument}
-                      loadSvgDocumentAsync={this.props.artifact.loadSvgDocumentAsync}
-                    />
-                  );
-              }
-            }}
+          <Observer selectedTabId={this.selectedTabId} vulnerableOnly={this.packagesVulnerableOnly}>
+            {(props: { selectedTabId: string; vulnerableOnly: boolean }) =>
+              this.isWaitingForFullArtifact(props.selectedTabId, props.vulnerableOnly)
+                ? this.renderLoadingFullArtifact()
+                : this.renderTabContent(props.selectedTabId)
+            }
           </Observer>
         </TabContent>
       </Page>
+    );
+  }
+
+  private renderTabContent(tabId: string): JSX.Element | undefined {
+    switch (tabId) {
+      case 'summary':
+        return (
+          <div className="page-content flex-grow">
+            <SpdxSummaryCard
+              document={this.props.artifact.spdxDocument}
+              files={this.state.files}
+              packages={this.state.packages}
+              securityAdvisories={this.state.securityAdvisories}
+              licenses={this.state.licenses}
+              suppliers={this.state.suppliers}
+            />
+          </div>
+        );
+      case 'files':
+        return (
+          <div className="page-content flex-grow">
+            <SpdxFileTableCard
+              document={this.props.artifact.spdxDocument}
+              files={this.state.files}
+              filter={this.filter}
+            />
+          </div>
+        );
+      case 'packages':
+        return (
+          <div className="page-content flex-grow">
+            <SpdxPackageTableCard
+              document={this.props.artifact.spdxDocument}
+              packages={this.state.packages}
+              filter={this.filter}
+              vulnerableOnly={this.packagesVulnerableOnly}
+            />
+          </div>
+        );
+      case 'licenses':
+        return (
+          <div className="page-content flex-grow">
+            <SpdxLicenseTableCard
+              document={this.props.artifact.spdxDocument}
+              licenses={this.state.licenses}
+              filter={this.filter}
+            />
+          </div>
+        );
+      case 'suppliers':
+        return (
+          <div className="page-content flex-grow">
+            <SpdxSupplierTableCard
+              packages={this.state.packages}
+              suppliers={this.state.suppliers}
+              filter={this.filter}
+            />
+          </div>
+        );
+      case 'securityAdvisories':
+        return (
+          <div className="page-content flex-grow">
+            <SpdxSecurityTableCard
+              document={this.props.artifact.spdxDocument}
+              securityAdvisories={this.state.securityAdvisories}
+              filter={this.filter}
+            />
+          </div>
+        );
+      case 'relationships':
+        return (
+          <SpdxRelationshipCard
+            document={this.props.artifact.spdxDocument}
+            loadSvgDocumentAsync={this.props.artifact.loadSvgDocumentAsync}
+          />
+        );
+    }
+  }
+
+  private renderLoadingFullArtifact(): JSX.Element {
+    if (this.state.loadFullArtifactError) {
+      return (
+        <MessageCard className="margin-vertical-32" severity={MessageCardSeverity.Error}>
+          {this.state.loadFullArtifactError.message || 'The full SBOM could not be loaded.'}
+        </MessageCard>
+      );
+    }
+    return <Spinner className="margin-vertical-32" size={SpinnerSize.large} label="Loading the full SBOM..." />;
+  }
+
+  /**
+   * A partial artifact only holds the vulnerable packages, so every other view (and the packages without the
+   * vulnerable-only filter) needs the full manifest first
+   */
+  private isWaitingForFullArtifact(tabId: string, vulnerableOnly: boolean): boolean {
+    return !!this.props.artifact.isPartial && (tabId !== 'packages' || !vulnerableOnly);
+  }
+
+  private requestFullArtifact(): void {
+    const { artifact } = this.props;
+    if (!artifact.isPartial || !artifact.loadFullArtifactAsync || this.state.isLoadingFullArtifact) {
+      return;
+    }
+    this.setState({ isLoadingFullArtifact: true, loadFullArtifactError: undefined });
+    artifact.loadFullArtifactAsync().then(
+      () => this.setState({ isLoadingFullArtifact: false }),
+      (error) => {
+        console.error(error);
+        this.setState({ isLoadingFullArtifact: false, loadFullArtifactError: error });
+      },
     );
   }
 
@@ -228,5 +269,14 @@ export class SbomDocumentPage extends React.Component<Props, State> {
 
   private onSelectedTabChanged = (newTabId: string) => {
     this.selectedTabId.value = newTabId;
+    if (this.isWaitingForFullArtifact(newTabId, this.packagesVulnerableOnly.value)) {
+      this.requestFullArtifact();
+    }
+  };
+
+  private onPackagesVulnerableOnlyChanged = (vulnerableOnly: boolean) => {
+    if (this.isWaitingForFullArtifact(this.selectedTabId.value, vulnerableOnly)) {
+      this.requestFullArtifact();
+    }
   };
 }

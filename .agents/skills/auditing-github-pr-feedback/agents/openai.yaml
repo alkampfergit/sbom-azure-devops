@@ -1,0 +1,4 @@
+interface:
+  display_name: 'Auditing GitHub PR Feedback'
+  short_description: 'Retrieve and validate PR review feedback'
+  default_prompt: 'Use $auditing-github-pr-feedback to retrieve every comment on the current pull request and validate each finding without making changes.'

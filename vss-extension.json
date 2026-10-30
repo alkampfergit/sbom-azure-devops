@@ -1,7 +1,7 @@
 {
   "$schema": "http://json.schemastore.org/vss-extension.json",
   "manifestVersion": 1,
-  "publisher": "rhyskoedijk",
+  "publisher": "Alkampfer",
   "id": "sbom-tool-local",
   "name": "SBOM Tool [LOCALHOST]",
   "description": "SBOM Tool. Generate SPDX 2.2 compatible SBOMs from Azure DevOps repository artifacts.",
