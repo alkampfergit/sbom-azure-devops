@@ -28,6 +28,7 @@ import { VulnerabilitiesSummaryBadge } from './vulnerabilitiesSummaryBadge';
 
 import { ISecurityVulnerability } from '../../../shared/ghsa/models/securityVulnerability';
 import { getSeverityByName, ISeverity, SEVERITIES } from '../../../shared/models/severity';
+import { getPackageSecurityAdvisories } from '../../../shared/spdx/getPackageSecurityAdvisories';
 import {
   getPackageAncestorDependencyPaths,
   getPackageLevelName,
@@ -35,18 +36,14 @@ import {
   IPackageDependencyPath,
 } from '../../../shared/spdx/models/2.3/document';
 import {
-  ExternalRefCategory,
-  ExternalRefSecurityType,
   getExternalRefPackageManagerName,
   getExternalRefPackageManagerUrl,
-  parseExternalRefsAs,
 } from '../../../shared/spdx/models/2.3/externalRef';
 import {
   getPackageLicenseExpression,
   getPackageSupplierOrganization,
   IPackage,
 } from '../../../shared/spdx/models/2.3/package';
-import { parseSpdxLegacySecurityAdvisories } from '../../../shared/spdx/parseSpdxLegacySecurityAdvisories';
 
 interface IPackageFilterCriteria {
   keyword: string;
@@ -75,6 +72,7 @@ interface Props {
   document: IDocument;
   packages: IPackage[];
   filter: IFilter;
+  vulnerableOnly?: ObservableValue<boolean>;
 }
 
 interface State {
@@ -90,10 +88,11 @@ export class SpdxPackageTableCard extends React.Component<Props, State> {
   private vulnerabilityFilter = new Filter();
   private packageManagerSelection = new DropdownMultiSelection();
   private severitySelection = new DropdownMultiSelection();
-  private showVulnerableOnly = new ObservableValue<boolean>(false);
+  private showVulnerableOnly: ObservableValue<boolean>;
 
   constructor(props: Props) {
     super(props);
+    this.showVulnerableOnly = props.vulnerableOnly ?? new ObservableValue<boolean>(false);
     this.state = SpdxPackageTableCard.getDerivedStateFromProps(props);
     this.props.filter?.subscribe(() => {
       this.state.filterTableItems?.(this.getFilterCriteria());
@@ -117,14 +116,7 @@ export class SpdxPackageTableCard extends React.Component<Props, State> {
       props.packages
         ?.orderBy((pkg: IPackage) => pkg.name)
         ?.map((pkg: IPackage) => {
-          const securityAdvisories =
-            parseExternalRefsAs<ISecurityVulnerability>(
-              pkg.externalRefs || [],
-              ExternalRefCategory.Security,
-              ExternalRefSecurityType.Url,
-            ) ||
-            parseSpdxLegacySecurityAdvisories(pkg) ||
-            [];
+          const securityAdvisories = getPackageSecurityAdvisories(pkg);
           return {
             id: pkg.SPDXID,
             name: pkg.name,
@@ -373,7 +365,7 @@ export class SpdxPackageTableCard extends React.Component<Props, State> {
       keyword: (props.filter?.getFilterItemValue('keyword') as string) || '',
       packageManagers: [],
       severities: [],
-      vulnerableOnly: false,
+      vulnerableOnly: props.vulnerableOnly?.value ?? false,
     });
 
     return { tableColumns, tableItems, tableSorting, filterTableItems, packageManagerOptions, severityOptions };

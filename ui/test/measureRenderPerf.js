@@ -90,9 +90,10 @@ async function measure(fixturePath) {
     }
     const timeToReadyMs = Date.now() - navStart;
 
-    // Wall-clock time until the Summary tab's content is actually visible/interactive, as a real
-    // user would experience it (independent of the JS-side render() callback timing above).
-    await page.waitForSelector('text=Total Files');
+    // Wall-clock time until the default tab's content is actually visible, as a real user would see it
+    // (independent of the JS-side render() callback timing above). The default tab is Packages when the
+    // document has security advisories, so wait for its "Vulnerable only" filter.
+    await page.waitForSelector('text=Vulnerable only');
 
     const results = { fixtureSizeMiB, ...harnessState.timings, wallClockToReadyMs: timeToReadyMs };
 

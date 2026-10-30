@@ -25,13 +25,24 @@ declare global {
   }
 }
 
+function renderArtifact(artifact: ISbomBuildArtifact, onRendered?: () => void) {
+  ReactDOM.render(
+    <SbomDocumentPage artifact={artifact} onLoadArtifacts={() => {}} />,
+    document.getElementById('root')!,
+    onRendered,
+  );
+}
+
 async function main() {
   const root = document.getElementById('root')!;
   window.__perfHarness = { status: 'fetching', timings: {} };
 
   try {
+    // `?partial=1` starts from the vulnerable-only copy of the manifest, like sbom-report-tab.tsx does when a build has
+    // one, and loads the full manifest on demand by re-rendering with it
+    const partialMode = new URLSearchParams(window.location.search).get('partial') === '1';
     const fetchStart = performance.now();
-    const response = await fetch('large-manifest.spdx.json');
+    const response = await fetch(partialMode ? 'large-manifest.vulnerable.spdx.json' : 'large-manifest.spdx.json');
     if (!response.ok) {
       throw new Error(`Failed to fetch fixture: ${response.status} ${response.statusText}`);
     }
@@ -43,14 +54,32 @@ async function main() {
     window.__perfHarness.timings.parseMs = performance.now() - parseStart;
     window.__perfHarness.status = 'parsed';
 
+    const loadFullArtifactAsync = async (): Promise<ISbomBuildArtifact> => {
+      const fullResponse = await fetch('large-manifest.spdx.json');
+      if (!fullResponse.ok) {
+        throw new Error(`Failed to fetch full fixture: ${fullResponse.status} ${fullResponse.statusText}`);
+      }
+      const fullBuffer = await fullResponse.arrayBuffer();
+      const fullDocument = JSON.parse(new TextDecoder().decode(fullBuffer)) as IDocument;
+      const fullArtifact: ISbomBuildArtifact = {
+        id: fullDocument.documentNamespace,
+        spdxDocument: fullDocument,
+        spdxJsonDocument: fullBuffer,
+      };
+      renderArtifact(fullArtifact);
+      return fullArtifact;
+    };
+
     const artifact: ISbomBuildArtifact = {
       id: spdxDocument.documentNamespace,
       spdxDocument,
       spdxJsonDocument: buffer,
+      isPartial: partialMode || undefined,
+      loadFullArtifactAsync: partialMode ? loadFullArtifactAsync : undefined,
     };
 
     const renderStart = performance.now();
-    ReactDOM.render(<SbomDocumentPage artifact={artifact} onLoadArtifacts={() => {}} />, root, () => {
+    renderArtifact(artifact, () => {
       window.__perfHarness!.timings.initialRenderMs = performance.now() - renderStart;
       window.__perfHarness!.status = 'ready';
     });

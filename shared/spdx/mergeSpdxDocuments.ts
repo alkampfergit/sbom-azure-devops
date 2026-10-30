@@ -2,7 +2,6 @@ import md5 from 'md5';
 
 import { getCreatorOrganization } from '../spdx/models/2.3/creationInfo';
 import { DocumentVersion, IDocument } from '../spdx/models/2.3/document';
-import { IFile } from '../spdx/models/2.3/file';
 import { IPackage } from '../spdx/models/2.3/package';
 
 const SpdxRefPrefix = 'SPDXRef';
@@ -36,17 +35,7 @@ export function mergeSpdxDocuments(
   });
 
   // Files with the same path will share the same SPDX ID, so we need to rename them to avoid conflicts
-  sourceDocuments.forEach((doc) => {
-    const namespaceHash = md5(doc.documentNamespace).substring(0, 10);
-    doc.files.forEach((file) => {
-      const packageName = doc.packages.find((p) => p.hasFiles?.includes(file.SPDXID))?.name;
-      renameFileId(doc, file.SPDXID, (f) => {
-        const oldPrefix = `${SpdxRefPrefix}-File-`;
-        const newPrefix = `${SpdxRefPrefix}-File-${packageName?.replace(/[^a-zA-Z0-9]+/g, '') || namespaceHash}`;
-        return f.SPDXID.startsWith(newPrefix) ? f.SPDXID : f.SPDXID.replace(oldPrefix, newPrefix);
-      });
-    });
-  });
+  sourceDocuments.forEach((doc) => renameFileIds(doc));
 
   // Merge the documents
   return {
@@ -99,27 +88,42 @@ function renamePackageId(document: IDocument, packageId: string, packageIdBuilde
 }
 
 /**
- * Rename the file ID in the SPDX document
+ * Rename the file IDs in the SPDX document, so they don't clash with files from other documents.
+ * Works in linear passes over the document using lookup tables. Searching the files and packages
+ * again for every file was quadratic, which made merging large manifests take many seconds.
  * @param document The SPDX document
- * @param fileId The file ID to be renamed
- * @param fileIdBuilder The function to build the new file ID
- * @returns The SPDX document with the renamed file ID
+ * @returns The SPDX document with renamed file IDs
  */
-function renameFileId(document: IDocument, fileId: string, fileIdBuilder: (p: IFile) => string): IDocument {
-  // Find the file
-  const file = document.files.find((p) => p.SPDXID === fileId);
-  if (file) {
-    // Rename the file
-    const oldId = file.SPDXID;
-    const newId = fileIdBuilder(file);
-    file.SPDXID = newId;
+function renameFileIds(document: IDocument): IDocument {
+  const namespaceHash = md5(document.documentNamespace).substring(0, 10);
 
-    // Update all references to the file
-    document.packages.forEach((p) => {
-      if (p.hasFiles?.includes(oldId)) {
-        p.hasFiles = p.hasFiles.map((id) => (id == oldId ? newId : id));
+  // The first package that lists each file names it
+  const packageNameByFileId = new Map<string, string | undefined>();
+  for (const pkg of document.packages) {
+    for (const fileId of pkg.hasFiles || []) {
+      if (!packageNameByFileId.has(fileId)) {
+        packageNameByFileId.set(fileId, pkg.name);
       }
-    });
+    }
+  }
+
+  // Rename the files
+  const newFileIdByOldId = new Map<string, string>();
+  for (const file of document.files) {
+    const oldId = file.SPDXID;
+    const packageName = packageNameByFileId.get(oldId);
+    const oldPrefix = `${SpdxRefPrefix}-File-`;
+    const newPrefix = `${SpdxRefPrefix}-File-${packageName?.replace(/[^a-zA-Z0-9]+/g, '') || namespaceHash}`;
+    const newId = oldId.startsWith(newPrefix) ? oldId : oldId.replace(oldPrefix, newPrefix);
+    file.SPDXID = newId;
+    newFileIdByOldId.set(oldId, newId);
+  }
+
+  // Update all references to the renamed files
+  for (const pkg of document.packages) {
+    if (pkg.hasFiles?.some((id) => newFileIdByOldId.has(id))) {
+      pkg.hasFiles = pkg.hasFiles.map((id) => newFileIdByOldId.get(id) ?? id);
+    }
   }
 
   return document;

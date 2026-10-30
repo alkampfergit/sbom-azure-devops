@@ -15,7 +15,8 @@ module.exports = {
       testEnvironment: 'node',
       testMatch: ['<rootDir>/shared/**/*.test.ts', '<rootDir>/task/**/*.test.ts'],
       transform: {
-        '^.+\\.ts$': 'ts-jest',
+        // Same module interop as task/ and ui/ tsconfig.json, so `import md5 from 'md5'` works here too
+        '^.+\\.ts$': ['ts-jest', { tsconfig: { esModuleInterop: true } }],
       },
     },
     {

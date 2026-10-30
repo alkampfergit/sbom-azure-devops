@@ -54,6 +54,20 @@ export class SbomDocumentHeader extends React.Component<Props, State> {
     artifact: ISbomBuildArtifact,
     onLoadArtifacts?: (files: File[]) => void,
   ): IHeaderCommandBarItem[] {
+    // A partial artifact only holds the vulnerable packages, so downloads and exports wait for the full manifest
+    const withFullArtifact = (action: (fullArtifact: ISbomBuildArtifact) => void) => () => {
+      const run = async () => {
+        try {
+          action(
+            artifact.isPartial && artifact.loadFullArtifactAsync ? await artifact.loadFullArtifactAsync() : artifact,
+          );
+        } catch (error) {
+          console.error(error);
+        }
+      };
+      void run();
+    };
+
     return [
       {
         id: 'downloadSpdx',
@@ -62,8 +76,13 @@ export class SbomDocumentHeader extends React.Component<Props, State> {
           iconName: 'Download',
         },
         important: true,
-        onActivate: () =>
-          downloadFile(`${artifact.spdxDocument.name}.spdx.json`, `text/json`, async () => artifact.spdxJsonDocument),
+        onActivate: withFullArtifact((fullArtifact) =>
+          downloadFile(
+            `${fullArtifact.spdxDocument.name}.spdx.json`,
+            `text/json`,
+            async () => fullArtifact.spdxJsonDocument,
+          ),
+        ),
       },
       {
         id: 'exportXlsx',
@@ -72,12 +91,13 @@ export class SbomDocumentHeader extends React.Component<Props, State> {
           iconName: 'ExcelDocument',
         },
         important: false,
-        onActivate: () =>
+        onActivate: withFullArtifact((fullArtifact) =>
           downloadFile(
-            `${artifact.spdxDocument.name}.spdx.xlsx`,
+            `${fullArtifact.spdxDocument.name}.spdx.xlsx`,
             `application/octet-stream`,
-            async () => await convertSpdxToXlsxAsync(artifact.spdxDocument),
+            async () => await convertSpdxToXlsxAsync(fullArtifact.spdxDocument),
           ),
+        ),
       },
       {
         id: 'exportSvg',
@@ -87,14 +107,15 @@ export class SbomDocumentHeader extends React.Component<Props, State> {
         },
         important: false,
         disabled: artifact.loadSvgDocumentAsync === undefined,
-        onActivate: () =>
+        onActivate: withFullArtifact((fullArtifact) =>
           downloadFile(
-            `${artifact.spdxDocument.name}.spdx.svg`,
+            `${fullArtifact.spdxDocument.name}.spdx.svg`,
             `image/svg+xml`,
             async () =>
-              (artifact.loadSvgDocumentAsync && (await artifact.loadSvgDocumentAsync())) ||
-              (await convertSpdxToSvgAsync(artifact.spdxDocument)),
+              (fullArtifact.loadSvgDocumentAsync && (await fullArtifact.loadSvgDocumentAsync())) ||
+              (await convertSpdxToSvgAsync(fullArtifact.spdxDocument)),
           ),
+        ),
       },
       ...(onLoadArtifacts
         ? [

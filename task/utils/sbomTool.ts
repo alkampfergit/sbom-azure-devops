@@ -12,6 +12,7 @@ import { endgroup, group, section } from './azurePipelines/commands';
 import { IDocument } from '../../shared/spdx/models/2.3/document';
 
 import { convertSpdxToXlsxAsync } from '../../shared/spdx/convertSpdxToXlsx';
+import { createVulnerablePackagesDocument } from '../../shared/spdx/createVulnerablePackagesDocument';
 import { addSpdxPackageSecurityAdvisoryExternalRefsAsync } from './spdx/addSpdxPackageSecurityAdvisories';
 import { addSpdxPackageVulnerabilitiesFromFileAsync } from './spdx/addSpdxPackageVulnerabilitiesFromFile';
 import { convertSpdxToSvgAsync } from './spdx/convertSpdxToSvg';
@@ -19,6 +20,9 @@ import { convertSpdxToSvgAsync } from './spdx/convertSpdxToSvg';
 const GITHUB_RELEASES_URL = 'https://github.com/microsoft/sbom-tool/releases';
 const MANIFEST_DIR_NAME = '_manifest';
 const MANIFEST_FORMAT = 'spdx';
+// Attachment type of the vulnerable-packages-only copy of a manifest (`spdx.vulnerable.json`)
+const VULNERABLE_MANIFEST_FORMAT = 'vulnerable';
+const VULNERABLE_MANIFEST_DIR_NAME = 'vulnerable';
 const MANIFEST_VERSION = '2.2';
 
 export interface SbomToolGenerateArgs {
@@ -289,6 +293,27 @@ export class SbomTool {
     // Attach the SPDX file to the build timeline so we can view it in the SBOM build result tab.
     const spdxJsonContent = await fs.readFile(spdxJsonPath, 'utf8');
     addAttachment(`${MANIFEST_FORMAT}.json`, path.basename(spdxJsonPath), spdxJsonPath);
+
+    // Also attach a copy holding only the vulnerable packages (and their dependency paths), so the report tab
+    // can show its first view without downloading the whole manifest. Same file name, so the tab can pair them.
+    if (spdxJsonContent) {
+      const vulnerableDocument = createVulnerablePackagesDocument(JSON.parse(spdxJsonContent) as IDocument);
+      if (vulnerableDocument) {
+        section('Writing vulnerable packages SPDX file');
+        const vulnerableJsonPath = path.join(
+          path.dirname(spdxJsonPath),
+          VULNERABLE_MANIFEST_DIR_NAME,
+          path.basename(spdxJsonPath),
+        );
+        await fs.mkdir(path.dirname(vulnerableJsonPath), { recursive: true });
+        await fs.writeFile(vulnerableJsonPath, JSON.stringify(vulnerableDocument));
+        addAttachment(
+          `${MANIFEST_FORMAT}.${VULNERABLE_MANIFEST_FORMAT}.json`,
+          path.basename(vulnerableJsonPath),
+          vulnerableJsonPath,
+        );
+      }
+    }
 
     // Regenerate the SHA-256 hash of the SPDX file, in case it was modified
     section('Generating SHA-256 hash file');

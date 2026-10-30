@@ -46,28 +46,66 @@ export function getDisplayNameForDocument(document: IDocument): string | undefin
   }
 }
 
-export function getPackageAncestorDependencyPaths(document: IDocument, packageId: string): IPackageDependencyPath[] {
-  const hasMultipleRootPackages = document.documentDescribes.length > 1;
-  const rootPackageIds = document.documentDescribes;
-  const relationships = document.relationships || [];
-  const dependsOnRelationships = relationships.filter((r) =>
-    spdxConstantsAreEqual(r.relationshipType, RelationshipType.DependsOn),
-  );
-  const packages = (document.packages || []).filter((p) => {
-    return hasMultipleRootPackages || !rootPackageIds.includes(p.SPDXID);
-  });
-  const packagesById = new Map(packages.map((p) => [p.SPDXID, p]));
+/**
+ * Lookup tables derived from a document, built once per document instead of once per call. Callers
+ * such as the package table ask about every package, so rebuilding these tables per call made the
+ * whole pass O(packages x relationships).
+ */
+interface IDocumentIndex {
+  // Source arrays and their lengths at build time, used to detect that the document was edited
+  packages: IPackage[];
+  relationships: IRelationship[];
+  documentDescribes: string[];
+  counts: [number, number, number];
+  rootPackageIds: Set<string>;
+  // Packages that the ancestor walk can reach (the document's root package is excluded when it is the only root)
+  packagesById: Map<string, IPackage>;
+  // "DependsOn" relationships keyed by their dependency (relatedSpdxElement) side, de-duplicated
+  dependsOnRelationshipsByRelatedElement: Map<string, IRelationship[]>;
+  // Packages that a root package directly depends on
+  topLevelPackageIds: Set<string>;
+}
 
-  const currentPackage = packagesById.get(packageId);
-  if (!currentPackage) {
-    return [];
+const documentIndexCache = new WeakMap<IDocument, IDocumentIndex>();
+
+// Documents can be edited in place (mergeSpdxDocuments renames IDs on its inputs), so the index is
+// only reused while the source arrays are the same objects with the same lengths. Anything that
+// changes a document's packages, relationships or documentDescribes must replace the array or change
+// its length, or the index will be stale.
+function getDocumentIndex(document: IDocument): IDocumentIndex {
+  const packages = document.packages || [];
+  const relationships = document.relationships || [];
+  const documentDescribes = document.documentDescribes || [];
+  const cached = documentIndexCache.get(document);
+  if (
+    cached &&
+    cached.packages === packages &&
+    cached.relationships === relationships &&
+    cached.documentDescribes === documentDescribes &&
+    cached.counts[0] === packages.length &&
+    cached.counts[1] === relationships.length &&
+    cached.counts[2] === documentDescribes.length
+  ) {
+    return cached;
   }
 
-  // Index "DependsOn" relationships by their dependency (relatedSpdxElement) side, so "who
-  // depends on this package" is an O(1) lookup instead of rescanning every relationship at every
-  // step of the recursive walk below (this was O(relationships) per step, per package).
+  const hasMultipleRootPackages = documentDescribes.length > 1;
+  const rootPackageIds = new Set(documentDescribes);
+  const packagesById = new Map(
+    packages
+      .filter((p) => hasMultipleRootPackages || !rootPackageIds.has(p.SPDXID))
+      .map((p) => [p.SPDXID, p] as [string, IPackage]),
+  );
+
   const dependsOnRelationshipsByRelatedElement = new Map<string, IRelationship[]>();
-  for (const r of dependsOnRelationships) {
+  const topLevelPackageIds = new Set<string>();
+  for (const r of relationships) {
+    if (!spdxConstantsAreEqual(r.relationshipType, RelationshipType.DependsOn)) {
+      continue;
+    }
+    if (rootPackageIds.has(r.spdxElementId)) {
+      topLevelPackageIds.add(r.relatedSpdxElement);
+    }
     const existing = dependsOnRelationshipsByRelatedElement.get(r.relatedSpdxElement);
     if (existing) {
       existing.push(r);
@@ -75,11 +113,39 @@ export function getPackageAncestorDependencyPaths(document: IDocument, packageId
       dependsOnRelationshipsByRelatedElement.set(r.relatedSpdxElement, [r]);
     }
   }
+  // Same de-duplication the ancestor walk applies to each lookup, done once up front
+  for (const [key, list] of dependsOnRelationshipsByRelatedElement) {
+    dependsOnRelationshipsByRelatedElement.set(
+      key,
+      list.distinctBy((r: IRelationship) => r.spdxElementId + r.relatedSpdxElement),
+    );
+  }
+
+  const index: IDocumentIndex = {
+    packages,
+    relationships,
+    documentDescribes,
+    counts: [packages.length, relationships.length, documentDescribes.length],
+    rootPackageIds,
+    packagesById,
+    dependsOnRelationshipsByRelatedElement,
+    topLevelPackageIds,
+  };
+  documentIndexCache.set(document, index);
+  return index;
+}
+
+export function getPackageAncestorDependencyPaths(document: IDocument, packageId: string): IPackageDependencyPath[] {
+  const index = getDocumentIndex(document);
+  const { packagesById, dependsOnRelationshipsByRelatedElement } = index;
+
+  const currentPackage = packagesById.get(packageId);
+  if (!currentPackage) {
+    return [];
+  }
 
   // Walk the dependency tree via all "DependsOn" relationships with the package to discover all possible package dependency paths
-  const ancestorDependencyReleationships = (dependsOnRelationshipsByRelatedElement.get(packageId) || []).distinctBy(
-    (r: IRelationship) => r.spdxElementId + r.relatedSpdxElement,
-  );
+  const ancestorDependencyReleationships = dependsOnRelationshipsByRelatedElement.get(packageId) || [];
   const ancestorDependencyPaths = ancestorDependencyReleationships.flatMap((relationship) =>
     getPackageAncestorPathsRecursive(
       dependsOnRelationshipsByRelatedElement,
@@ -125,9 +191,7 @@ function getPackageAncestorPathsRecursive(
 
   const newPath = [currentPackage, ...pathSoFar].filter((p) => p !== undefined);
   const ancestorDependencyPaths: IPackageDependencyPath[] = [];
-  const ancestorDependencyReleationships = (dependsOnRelationshipsByRelatedElement.get(packageId) || []).distinctBy(
-    (r: IRelationship) => r.spdxElementId + r.relatedSpdxElement,
-  );
+  const ancestorDependencyReleationships = dependsOnRelationshipsByRelatedElement.get(packageId) || [];
   if (ancestorDependencyReleationships.length > 0) {
     for (const relationship of ancestorDependencyReleationships) {
       ancestorDependencyPaths.push(
@@ -158,19 +222,9 @@ export function getPackageLevelName(document: IDocument, packageId: string): str
 }
 
 export function isPackageRootLevel(document: IDocument, packageId: string): boolean {
-  return document.documentDescribes.includes(packageId);
+  return getDocumentIndex(document).rootPackageIds.has(packageId);
 }
 
 export function isPackageTopLevel(document: IDocument, packageId: string): boolean {
-  const rootPackageIds = document.documentDescribes;
-  const relationships = document.relationships || [];
-  const dependsOnRelationships = relationships.filter((r) =>
-    spdxConstantsAreEqual(r.relationshipType, RelationshipType.DependsOn),
-  );
-  return dependsOnRelationships.some(
-    (relationship) =>
-      rootPackageIds.includes(relationship.spdxElementId) &&
-      relationship.relatedSpdxElement === packageId &&
-      spdxConstantsAreEqual(relationship.relationshipType, RelationshipType.DependsOn),
-  );
+  return getDocumentIndex(document).topLevelPackageIds.has(packageId);
 }

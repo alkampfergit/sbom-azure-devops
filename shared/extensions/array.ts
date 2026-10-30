@@ -11,7 +11,17 @@ Array.prototype.distinct = function () {
 };
 
 Array.prototype.distinctBy = function <T>(selector: (x: T) => any) {
-  return this.filter((value, index, self) => self.findIndex((x) => selector(x) === selector(value)) === index);
+  // Keeps the first item for each key, in order. A Set makes this linear; comparing each item
+  // against every earlier item (and re-running the selector each time) was quadratic.
+  const seen = new Set<any>();
+  return this.filter((value) => {
+    const key = selector(value);
+    if (seen.has(key)) {
+      return false;
+    }
+    seen.add(key);
+    return true;
+  });
 };
 
 Array.prototype.orderBy = function <T>(selector: (x: T) => any, asc: boolean = true) {
